@@ -158,14 +158,22 @@ def create_synthetic_prompts(n: int, seed: int = 42) -> list[dict]:
     return prompts
 
 
-def run_mvp_validation(wrapper, test_prompts, verbose=True):
+def run_mvp_validation(wrapper, test_prompts, verbose=True, diagnose=False):
     """
     Run MVP validation: check logit lens accuracy on z3 and z5.
+    
+    Args:
+        diagnose: If True, check all latent positions to find where steps are encoded
     """
     z3_correct = 0
     z5_correct = 0
     z3_total = 0
     z5_total = 0
+    
+    # Track which latent position best matches each step (for diagnosis)
+    step1_hits_by_position = {i: 0 for i in range(6)}
+    step2_hits_by_position = {i: 0 for i in range(6)}
+    final_hits_by_position = {i: 0 for i in range(6)}
     
     details = []
     
@@ -177,23 +185,32 @@ def run_mvp_validation(wrapper, test_prompts, verbose=True):
             ground_truth_answer=str(item["final_answer"]),
         )
         
-        if len(result.latent_vectors) < 5:
+        if len(result.latent_vectors) < 6:
             continue
-        
-        # Check z3 (index 2) for step 1 result
-        z3_lens = wrapper.logit_lens(result.latent_vectors[2])
-        z3_top1, z3_prob = z3_lens.get_top1_at_final_layer()
-        
-        # Check z5 (index 4) for step 2 result  
-        z5_lens = wrapper.logit_lens(result.latent_vectors[4])
-        z5_top1, z5_prob = z5_lens.get_top1_at_final_layer()
         
         step1_gt = str(item["step1_result"])
         step2_gt = str(item["step2_result"])
+        final_gt = str(item["final_answer"])
         
-        # Extract number from prediction and compare exactly
-        z3_num = extract_number(z3_top1)
-        z5_num = extract_number(z5_top1)
+        # Get predictions from all latent positions
+        all_preds = []
+        for i in range(6):
+            lens_result = wrapper.logit_lens(result.latent_vectors[i])
+            top1, prob = lens_result.get_top1_at_final_layer()
+            num = extract_number(top1)
+            all_preds.append({"token": top1, "prob": prob, "num": num})
+            
+            # Track hits for diagnosis
+            if num == step1_gt:
+                step1_hits_by_position[i] += 1
+            if num == step2_gt:
+                step2_hits_by_position[i] += 1
+            if num == final_gt:
+                final_hits_by_position[i] += 1
+        
+        # Use z3 (index 2) for step 1, z5 (index 4) for step 2
+        z3_num = all_preds[2]["num"]
+        z5_num = all_preds[4]["num"]
         
         z3_match = z3_num is not None and z3_num == step1_gt
         z5_match = z5_num is not None and z5_num == step2_gt
@@ -206,24 +223,34 @@ def run_mvp_validation(wrapper, test_prompts, verbose=True):
         if z5_match:
             z5_correct += 1
         
-        details.append({
+        detail = {
             "prompt": item["prompt"][:50] + "...",
             "step1_gt": step1_gt,
             "step2_gt": step2_gt,
-            "z3_pred": z3_top1,
-            "z3_prob": z3_prob,
+            "final_gt": final_gt,
+            "z3_pred": all_preds[2]["token"],
+            "z3_prob": all_preds[2]["prob"],
             "z3_match": z3_match,
-            "z5_pred": z5_top1,
-            "z5_prob": z5_prob,
+            "z5_pred": all_preds[4]["token"],
+            "z5_prob": all_preds[4]["prob"],
             "z5_match": z5_match,
             "model_answer": result.predicted_answer,
             "correct": result.is_correct,
-        })
+        }
+        
+        # Add all latent predictions for diagnosis
+        if diagnose:
+            detail["all_latent_preds"] = [
+                {"z": i+1, "pred": p["token"], "num": p["num"], "prob": p["prob"]}
+                for i, p in enumerate(all_preds)
+            ]
+        
+        details.append(detail)
     
     z3_acc = z3_correct / z3_total if z3_total > 0 else 0
     z5_acc = z5_correct / z5_total if z5_total > 0 else 0
     
-    return {
+    result = {
         "z3_accuracy": z3_acc,
         "z3_correct": z3_correct,
         "z3_total": z3_total,
@@ -232,6 +259,17 @@ def run_mvp_validation(wrapper, test_prompts, verbose=True):
         "z5_total": z5_total,
         "details": details,
     }
+    
+    # Add diagnostic info
+    if diagnose:
+        result["diagnosis"] = {
+            "step1_hits_by_position": {f"z{k+1}": v for k, v in step1_hits_by_position.items()},
+            "step2_hits_by_position": {f"z{k+1}": v for k, v in step2_hits_by_position.items()},
+            "final_hits_by_position": {f"z{k+1}": v for k, v in final_hits_by_position.items()},
+            "total_samples": z3_total,
+        }
+    
+    return result
 
 
 def main():
@@ -244,6 +282,7 @@ def main():
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--synthetic", action="store_true", help="Use synthetic prompts instead of GSM8k")
+    parser.add_argument("--diagnose", action="store_true", help="Check all latent positions to find best mapping")
     args = parser.parse_args()
     
     print("=" * 60)
@@ -293,7 +332,7 @@ def main():
     
     # Run MVP validation
     print(f"\nRunning MVP validation...")
-    results = run_mvp_validation(wrapper, test_prompts, verbose=args.verbose)
+    results = run_mvp_validation(wrapper, test_prompts, verbose=args.verbose, diagnose=args.diagnose)
     
     # Print summary
     print("\n" + "=" * 60)
@@ -301,6 +340,28 @@ def main():
     print("=" * 60)
     print(f"z3 (Step 1) Accuracy: {results['z3_accuracy']:.2%} ({results['z3_correct']}/{results['z3_total']})")
     print(f"z5 (Step 2) Accuracy: {results['z5_accuracy']:.2%} ({results['z5_correct']}/{results['z5_total']})")
+    
+    # Print diagnostic info if available
+    if args.diagnose and "diagnosis" in results:
+        diag = results["diagnosis"]
+        print("\n" + "-" * 60)
+        print("DIAGNOSTIC: Which latent position matches each step?")
+        print(f"  (out of {diag['total_samples']} samples)")
+        print("\n  Step 1 intermediate result found in:")
+        for pos, hits in diag["step1_hits_by_position"].items():
+            pct = hits / diag["total_samples"] * 100 if diag["total_samples"] > 0 else 0
+            bar = "█" * int(pct / 5) 
+            print(f"    {pos}: {hits:3d} ({pct:5.1f}%) {bar}")
+        print("\n  Step 2 intermediate result found in:")
+        for pos, hits in diag["step2_hits_by_position"].items():
+            pct = hits / diag["total_samples"] * 100 if diag["total_samples"] > 0 else 0
+            bar = "█" * int(pct / 5)
+            print(f"    {pos}: {hits:3d} ({pct:5.1f}%) {bar}")
+        print("\n  Final answer found in:")
+        for pos, hits in diag["final_hits_by_position"].items():
+            pct = hits / diag["total_samples"] * 100 if diag["total_samples"] > 0 else 0
+            bar = "█" * int(pct / 5)
+            print(f"    {pos}: {hits:3d} ({pct:5.1f}%) {bar}")
     
     # Check exit criteria (matches config and README: 90%)
     MVP_THRESHOLD = 0.90
