@@ -117,31 +117,79 @@ def load_gsm8k_prompts(n: int, split: str = "test", seed: int = 42) -> list[dict
 
 def create_synthetic_prompts(n: int, seed: int = 42) -> list[dict]:
     """
-    Create synthetic test prompts (fallback if GSM8k unavailable).
+    Create test prompts using the EXACT templates from the CODI paper.
+    
+    All templates follow a 3-step structure:
+    - Addition: (X+Y)*Z + (X+Y)
+    - Subtraction: (X-Y)*Z + (X-Y)
+    
+    Step 1 result -> z3, Step 2 result -> z5
     """
     random.seed(seed)
     
-    templates = [
-        {
-            "template": "A team starts with {X} members. They recruit {Y} new members. Then each current member recruits {Z} additional people. How many people are there now on the team? Give the answer only and nothing else.",
+    # Templates from references/codi/src/templates.py
+    ADDITION_TEMPLATES = [
+        "A team starts with {X} members. They recruit {Y} new members. Then each current member recruits {Z} additional people. How many people are there now on the team? Give the answer only and nothing else.",
+        "A company starts with {X} employees. They hire {Y} more employees. Then each current employee brings in {Z} additional people. How many people are there now in the company? Give the answer only and nothing else.",
+        "A school starts with {X} students. They enroll {Y} new students. Then each current student brings {Z} additional students. How many students are there now in the school? Give the answer only and nothing else.",
+        "A club starts with {X} members. They add {Y} new members. Then each current member invites {Z} additional people. How many people are there now in the club? Give the answer only and nothing else.",
+        "A restaurant starts with {X} customers. They welcome {Y} more customers. Then each current customer brings {Z} additional customers. How many customers are there now in the restaurant? Give the answer only and nothing else.",
+        "A gym starts with {X} members. They sign up {Y} new members. Then each current member refers {Z} additional people. How many people are there now in the gym? Give the answer only and nothing else.",
+        "A band starts with {X} musicians. They add {Y} more musicians. Then each current musician brings {Z} additional musicians. How many musicians are there now in the band? Give the answer only and nothing else.",
+        "A community starts with {X} residents. They welcome {Y} new residents. Then each current resident invites {Z} additional people. How many people are there now in the community? Give the answer only and nothing else.",
+        "A group starts with {X} participants. They add {Y} new participants. Then each current participant brings {Z} additional people. How many people are there now in the group? Give the answer only and nothing else.",
+        "A workshop starts with {X} attendees. They register {Y} more attendees. Then each current attendee brings {Z} additional people. How many people are there now in the workshop? Give the answer only and nothing else.",
+    ]
+    
+    SUBTRACTION_TEMPLATES = [
+        "A team starts with {X} members. {Y} members leave the team. Then each remaining member recruits {Z} additional people. How many people are there now on the team? Give the answer only and nothing else.",
+        "A company starts with {X} employees. {Y} employees resign. Then each remaining employee brings in {Z} additional people. How many people are there now in the company? Give the answer only and nothing else.",
+        "A school starts with {X} students. {Y} students transfer out. Then each remaining student brings {Z} additional students. How many students are there now in the school? Give the answer only and nothing else.",
+        "A club starts with {X} members. {Y} members quit. Then each remaining member invites {Z} additional people. How many people are there now in the club? Give the answer only and nothing else.",
+        "A restaurant starts with {X} customers. {Y} customers leave. Then each remaining customer brings {Z} additional customers. How many customers are there now in the restaurant? Give the answer only and nothing else.",
+        "A gym starts with {X} members. {Y} members cancel. Then each remaining member refers {Z} additional people. How many people are there now in the gym? Give the answer only and nothing else.",
+        "A band starts with {X} musicians. {Y} musicians depart. Then each remaining musician brings {Z} additional musicians. How many musicians are there now in the band? Give the answer only and nothing else.",
+        "A community starts with {X} residents. {Y} residents move away. Then each remaining resident invites {Z} additional people. How many people are there now in the community? Give the answer only and nothing else.",
+        "A group starts with {X} participants. {Y} participants drop out. Then each remaining participant brings {Z} additional people. How many people are there now in the group? Give the answer only and nothing else.",
+        "A workshop starts with {X} attendees. {Y} attendees withdraw. Then each remaining attendee brings {Z} additional people. How many people are there now in the workshop? Give the answer only and nothing else.",
+    ]
+    
+    templates = []
+    
+    # Addition templates: Step1 = X+Y, Step2 = (X+Y)*Z, Final = (X+Y) + (X+Y)*Z
+    for t in ADDITION_TEMPLATES:
+        templates.append({
+            "template": t,
+            "type": "addition",
             "step1": lambda x, y, z: x + y,
             "step2": lambda x, y, z: (x + y) * z,
             "final": lambda x, y, z: (x + y) + (x + y) * z,
-        },
-        {
-            "template": "A store has {X} items. {Y} items are sold. Then {Z} items are added. How many items are in the store now? Give the answer only and nothing else.",
+        })
+    
+    # Subtraction templates: Step1 = X-Y, Step2 = (X-Y)*Z, Final = (X-Y) + (X-Y)*Z
+    for t in SUBTRACTION_TEMPLATES:
+        templates.append({
+            "template": t,
+            "type": "subtraction",
             "step1": lambda x, y, z: x - y,
-            "step2": lambda x, y, z: (x - y) + z,
-            "final": lambda x, y, z: (x - y) + z,
-        },
-    ]
+            "step2": lambda x, y, z: (x - y) * z,
+            "final": lambda x, y, z: (x - y) + (x - y) * z,
+        })
     
     prompts = []
     for i in range(n):
         template = random.choice(templates)
-        x = random.randint(2, 10)
-        y = random.randint(2, 8)
-        z = random.randint(2, 5)
+        
+        # Use numbers 1-10 as in the paper
+        if template["type"] == "addition":
+            x = random.randint(1, 10)
+            y = random.randint(1, 10)
+            z = random.randint(1, 10)
+        else:
+            # For subtraction, ensure X > Y to avoid negative numbers
+            x = random.randint(2, 10)
+            y = random.randint(1, x - 1)
+            z = random.randint(1, 10)
         
         prompt = template["template"].format(X=x, Y=y, Z=z)
         step1 = template["step1"](x, y, z)
@@ -150,6 +198,8 @@ def create_synthetic_prompts(n: int, seed: int = 42) -> list[dict]:
         
         prompts.append({
             "prompt": prompt,
+            "type": template["type"],
+            "x": x, "y": y, "z": z,
             "step1_result": str(step1),
             "step2_result": str(step2),
             "final_answer": str(final),
