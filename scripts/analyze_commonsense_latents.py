@@ -447,15 +447,15 @@ def main():
                 "top1_prob": top1_prob,
                 "top5": list(zip(top_tokens[:5], top_probs[:5])),
             })
+            
+            if args.verbose:
+                print(f"  {z_name}: '{top1_token}' ({top1_prob:.2f})")
         
         # Store match info in example data
         example_data["answer_concept"] = answer_concept
         example_data["letter_found_in"] = letter_found_in_z
         example_data["concept_found_in"] = concept_found_in_z
         example_data["combined_found_in"] = combined_found_in_z
-
-            if args.verbose:
-                print(f"  {z_name}: '{top1_token}' ({top1_prob:.2f})")
 
         # Track eocot position
         if first_eocot_pos:
