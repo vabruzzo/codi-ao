@@ -28,11 +28,13 @@ DEFAULT_PLACEHOLDER_TOKEN = " ?"
 @dataclass
 class AOConfig:
     """Configuration for Activation Oracle."""
-    
+
     # Model settings
     model_name: str = "meta-llama/Llama-3.2-1B-Instruct"
     injection_layer: int = 1  # Layer to inject activations (after this layer)
-    placeholder_token: str = DEFAULT_PLACEHOLDER_TOKEN  # Token used as placeholder for activation injection
+    placeholder_token: str = (
+        DEFAULT_PLACEHOLDER_TOKEN  # Token used as placeholder for activation injection
+    )
 
     # LoRA settings
     use_lora: bool = True
@@ -59,16 +61,16 @@ def get_introspection_prefix(
 ) -> str:
     """
     Create the introspection prefix with placeholder tokens.
-    
+
     Format matches original AO paper:
         Layer: {layer}\n
          ? ? ?...\n
-    
+
     Args:
         layer: Layer identifier (int or string like "50%")
         num_positions: Number of placeholder tokens to include
         placeholder_token: Token to use as placeholder (default: " ?")
-    
+
     Returns:
         Formatted prefix string
     """
@@ -85,24 +87,24 @@ def validate_repeated_placeholder(
 ) -> None:
     """
     Validate that repeated placeholder tokens don't merge during tokenization.
-    
+
     Some tokenizers may merge repeated patterns (e.g., "??" -> single token).
     This validates that N repetitions produce exactly N tokens.
-    
+
     Args:
         tokenizer: The tokenizer to validate with
         placeholder_token: The placeholder token string
         num_positions: Number of repetitions to validate
-    
+
     Raises:
         ValueError: If tokens merge unexpectedly
     """
     if num_positions <= 1:
         return  # Single token already validated by validate_placeholder_token
-    
+
     repeated = placeholder_token * num_positions
     token_ids = tokenizer.encode(repeated, add_special_tokens=False)
-    
+
     if len(token_ids) != num_positions:
         raise ValueError(
             f"Repeated placeholder tokens merge during tokenization: "
@@ -135,18 +137,18 @@ class AOPrompt:
     ) -> "AOPrompt":
         """
         Create an AO prompt from a question and activation vectors.
-        
+
         **IMPORTANT**: If using with an ActivationOracle instance, prefer
         `ao.create_prompt()` instead to ensure the placeholder token matches
         the oracle's configuration. Using this method directly with the default
         placeholder_token may cause mismatches if AOConfig.placeholder_token
         was customized.
-        
+
         Format matches original AO paper:
             Layer: {layer}\n
              ? ? ?...\n
             {question}
-        
+
         Args:
             question: The question to ask about the activations
             activation_vectors: List of activation tensors to inject
@@ -155,15 +157,15 @@ class AOPrompt:
             placeholder_token: Token to use as placeholder (must match AO config!)
         """
         num_acts = len(activation_vectors)
-        
+
         if layer == -1:
             layer_str = f"{layer_percent}%"
         else:
             layer_str = str(layer)
-        
+
         prefix = get_introspection_prefix(layer_str, num_acts, placeholder_token)
         text = prefix + question
-        
+
         return cls(
             text=text,
             activation_vectors=activation_vectors,
@@ -203,16 +205,16 @@ def get_norm_matched_steering_hook(
             f"got {len(vectors)} vectors, {len(positions)} positions"
         )
     B = len(vectors)
-    
+
     if B == 0:
         return lambda m, i, o: o
-    
+
     # Pre-normalize vectors and validate K matches positions
     normed_list = []
     for b, v_b in enumerate(vectors):
         if v_b.dim() == 1:
             v_b = v_b.unsqueeze(0)  # (hidden_dim,) -> (1, hidden_dim)
-        
+
         K_b = v_b.shape[0]
         num_pos_b = len(positions[b])
         if K_b != num_pos_b:
@@ -220,7 +222,7 @@ def get_norm_matched_steering_hook(
                 f"Batch element {b}: vector count ({K_b}) != position count ({num_pos_b}). "
                 f"Each sample must have matching vectors and positions."
             )
-        
+
         normed_list.append(torch.nn.functional.normalize(v_b.to(device).to(dtype), dim=-1).detach())
 
     def hook_fn(module, _input, output):
@@ -283,14 +285,14 @@ def add_hook(module: nn.Module, hook: Callable):
 def validate_placeholder_token(tokenizer, placeholder_token: str) -> int:
     """
     Validate that a placeholder token encodes to exactly one token ID.
-    
+
     Args:
         tokenizer: The tokenizer to use
         placeholder_token: The placeholder token string
-    
+
     Returns:
         The single token ID
-    
+
     Raises:
         ValueError: If the token doesn't encode to exactly one ID
     """
@@ -333,7 +335,7 @@ def find_placeholder_positions(
     """
     # Validate single token
     special_token_id = validate_placeholder_token(tokenizer, placeholder_token)
-    
+
     # Validate repeated tokens don't merge
     if validate_no_merging and num_positions > 1:
         validate_repeated_placeholder(tokenizer, placeholder_token, num_positions)
@@ -402,11 +404,9 @@ class ActivationOracle:
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-        
+
         # Validate placeholder token at init time (fail fast)
-        self._placeholder_token_id = validate_placeholder_token(
-            tokenizer, config.placeholder_token
-        )
+        self._placeholder_token_id = validate_placeholder_token(tokenizer, config.placeholder_token)
 
     @classmethod
     def from_pretrained(
@@ -500,7 +500,7 @@ class ActivationOracle:
     ) -> list[int]:
         """
         Find positions of placeholder tokens in input_ids.
-        
+
         Uses the config's placeholder token and validates consecutive positions.
         """
         token_list = input_ids[0].tolist()
@@ -595,16 +595,16 @@ class ActivationOracle:
     ) -> AOPrompt:
         """
         Create an AOPrompt using this oracle's configured placeholder token.
-        
+
         This ensures the prompt is compatible with the oracle's configuration.
         Use this instead of AOPrompt.from_question() to avoid placeholder mismatches.
-        
+
         Args:
             question: The question to ask about the activations
             activation_vectors: List of activation tensors to inject
             layer: Specific layer number (-1 to use layer_percent)
             layer_percent: Layer as percentage of model depth
-        
+
         Returns:
             AOPrompt configured for this oracle
         """
@@ -704,18 +704,18 @@ def format_oracle_prompt(
 ) -> str:
     """
     Format a prompt for the Activation Oracle.
-    
+
     Uses the standard format from the AO paper:
         Layer: {layer}\n
          ? ? ?...\n
         {question}
-    
+
     Args:
         question: The question to ask
         num_activations: Number of activation vectors to inject
         layer_percent: Layer percentage the activations came from
         placeholder_token: The placeholder token to use
-    
+
     Returns:
         Formatted prompt string
     """

@@ -8,9 +8,7 @@ This module provides utilities to:
 4. Perform logit lens analysis on latent vectors
 """
 
-import importlib.util
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -19,33 +17,8 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer
 
-# Import CODI model from references directory using importlib
-# This avoids conflicts with our own src/ directory
-CODI_DIR = Path(__file__).parent.parent / "references" / "codi"
-CODI_MODEL_PATH = CODI_DIR / "src" / "model.py"
-
-def _import_codi_model():
-    """Import CODI model from the references directory."""
-    if not CODI_MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"CODI model not found at {CODI_MODEL_PATH}. "
-            f"Make sure the references/codi directory contains the CODI source code."
-        )
-    
-    spec = importlib.util.spec_from_file_location("codi_model", CODI_MODEL_PATH)
-    module = importlib.util.module_from_spec(spec)
-    
-    # Add CODI's src to path temporarily for its internal imports
-    old_path = sys.path.copy()
-    sys.path.insert(0, str(CODI_DIR))
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        sys.path = old_path
-    
-    return module.CODI
-
-CODI = _import_codi_model()
+# Import our local CODI model implementation
+from .codi_model import CODI
 
 
 @dataclass
