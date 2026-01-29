@@ -29,11 +29,11 @@ class LatentCollectionResult:
     prompt: str
     ground_truth_answer: Optional[str] = None
 
-    # Latent vectors (post-projection by default)
+    # Latent vectors - pre-projection (for logit lens / interpretation)
     latent_vectors: list[torch.Tensor] = field(
         default_factory=list
-    )  # List of (hidden_dim,) tensors
-    latent_vectors_pre_prj: list[torch.Tensor] = field(default_factory=list)  # Before projection
+    )  # List of (hidden_dim,) tensors - these are interpretable via logit lens
+    latent_vectors_post_prj: list[torch.Tensor] = field(default_factory=list)  # After projection (input to next iteration)
 
     # Teacher task outputs (explicit CoT)
     teacher_cot: Optional[str] = None
@@ -260,8 +260,10 @@ class CODIWrapper:
             )
 
         # Extract latent vectors
+        # latent_vectors: pre-projection (for logit lens - interpretable)
+        # latent_vectors_post_prj: post-projection (input to next iteration)
         latent_vectors = []
-        latent_vectors_pre_prj = []
+        latent_vectors_post_prj = []
 
         if "latent_vectors" in output:
             for lv in output["latent_vectors"]:
@@ -269,10 +271,10 @@ class CODIWrapper:
                 vec = lv.squeeze(0).squeeze(0).cpu()
                 latent_vectors.append(vec)
 
-        if return_pre_projection and "latent_vectors_pre_prj" in output:
-            for lv in output["latent_vectors_pre_prj"]:
+        if "latent_vectors_post_prj" in output:
+            for lv in output["latent_vectors_post_prj"]:
                 vec = lv.squeeze(0).squeeze(0).cpu()
-                latent_vectors_pre_prj.append(vec)
+                latent_vectors_post_prj.append(vec)
 
         # Decode predicted answer
         predicted_answer = self.tokenizer.decode(
@@ -292,8 +294,8 @@ class CODIWrapper:
         return LatentCollectionResult(
             prompt=prompt,
             ground_truth_answer=ground_truth_answer,
-            latent_vectors=latent_vectors,
-            latent_vectors_pre_prj=latent_vectors_pre_prj,
+            latent_vectors=latent_vectors,  # Pre-projection (for logit lens)
+            latent_vectors_post_prj=latent_vectors_post_prj,  # Post-projection
             predicted_answer=predicted_answer,
             is_correct=is_correct,
             hidden_states=hidden_states,

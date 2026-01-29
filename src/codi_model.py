@@ -280,7 +280,8 @@ class CODI(nn.Module):
                     [attention_mask, torch.ones(batch_size, 2, device=device)], dim=1
                 )
 
-        latent_vectors = []
+        latent_vectors = []  # Pre-projection vectors (for logit lens)
+        latent_vectors_post_prj = []  # Post-projection vectors
         all_hidden_states = []
 
         with torch.no_grad():
@@ -304,17 +305,23 @@ class CODI(nn.Module):
             if not skip_thinking:
                 # Latent reasoning iterations
                 for i in range(num_latent_iterations):
-                    # Project latent embedding
-                    if self.use_prj:
-                        latent_embd = self.prj(latent_embd)
-                        latent_embd = latent_embd.to(dtype=self.codi.dtype)
-
+                    # Store PRE-projection latent (this is what logit lens needs)
                     if return_latent_vectors:
                         latent_vectors.append(latent_embd.clone())
 
-                    # Forward with latent embedding
+                    # Project latent embedding for next iteration input
+                    if self.use_prj:
+                        latent_embd_projected = self.prj(latent_embd)
+                        latent_embd_projected = latent_embd_projected.to(dtype=self.codi.dtype)
+                    else:
+                        latent_embd_projected = latent_embd
+
+                    if return_latent_vectors:
+                        latent_vectors_post_prj.append(latent_embd_projected.clone())
+
+                    # Forward with projected latent embedding
                     outputs = self.codi(
-                        inputs_embeds=latent_embd,
+                        inputs_embeds=latent_embd_projected,
                         past_key_values=past_key_values,
                         use_cache=True,
                         output_hidden_states=True,
@@ -325,7 +332,7 @@ class CODI(nn.Module):
                         hs = torch.stack([h for h in outputs.hidden_states], dim=0)
                         all_hidden_states.append(hs)
 
-                    # Get next latent embedding
+                    # Get next latent embedding (pre-projection)
                     latent_embd = outputs.hidden_states[-1][:, -1:, :]
 
             # Add end-of-thought token
@@ -396,7 +403,10 @@ class CODI(nn.Module):
         result = {"sequences": sequences}
 
         if return_latent_vectors:
+            # latent_vectors: pre-projection (for logit lens interpretation)
+            # latent_vectors_post_prj: post-projection (input to next iteration)
             result["latent_vectors"] = latent_vectors
+            result["latent_vectors_post_prj"] = latent_vectors_post_prj
 
         if output_hidden_states and all_hidden_states:
             # Concatenate along sequence dimension
