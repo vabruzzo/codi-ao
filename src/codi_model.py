@@ -133,28 +133,59 @@ class CODI(nn.Module):
         if checkpoint_save_path is None:
             checkpoint_save_path = f"./checkpoints/{checkpoint_path.replace('/', '_')}"
 
-        checkpoint_file = Path(checkpoint_save_path) / "model.safetensors"
+        os.makedirs(checkpoint_save_path, exist_ok=True)
 
-        if not checkpoint_file.exists():
-            print(f"Downloading checkpoint from {checkpoint_path}...")
-            os.makedirs(checkpoint_save_path, exist_ok=True)
-            hf_hub_download(
-                repo_id=checkpoint_path,
-                filename="model.safetensors",
-                local_dir=checkpoint_save_path,
+        # Try different possible checkpoint filenames
+        possible_files = [
+            "model.safetensors",
+            "adapter_model.safetensors",
+            "pytorch_model.bin",
+            "adapter_model.bin",
+        ]
+
+        checkpoint_file = None
+        for filename in possible_files:
+            local_path = Path(checkpoint_save_path) / filename
+            if local_path.exists():
+                checkpoint_file = local_path
+                break
+            try:
+                print(f"Trying to download {filename} from {checkpoint_path}...")
+                hf_hub_download(
+                    repo_id=checkpoint_path,
+                    filename=filename,
+                    local_dir=checkpoint_save_path,
+                )
+                checkpoint_file = local_path
+                print(f"Successfully downloaded {filename}")
+                break
+            except Exception:
+                print(f"  {filename} not found, trying next...")
+                continue
+
+        if checkpoint_file is None or not checkpoint_file.exists():
+            # List available files in the repo
+            from huggingface_hub import list_repo_files
+            available = list_repo_files(checkpoint_path)
+            raise FileNotFoundError(
+                f"Could not find checkpoint in {checkpoint_path}. "
+                f"Available files: {available}"
             )
 
-        # Load weights
-        from safetensors.torch import load_file
-
-        state_dict = load_file(str(checkpoint_file))
+        # Load weights based on file type
+        print(f"Loading weights from {checkpoint_file}...")
+        if str(checkpoint_file).endswith(".safetensors"):
+            from safetensors.torch import load_file
+            state_dict = load_file(str(checkpoint_file))
+        else:
+            state_dict = torch.load(str(checkpoint_file), map_location="cpu")
 
         # Load with appropriate strictness
         missing, unexpected = codi_model.load_state_dict(state_dict, strict=strict)
-        if missing and strict:
-            print(f"Missing keys: {missing}")
-        if unexpected and strict:
-            print(f"Unexpected keys: {unexpected}")
+        if missing:
+            print(f"Missing keys: {len(missing)} (this may be normal for LoRA)")
+        if unexpected:
+            print(f"Unexpected keys: {len(unexpected)}")
 
         codi_model.to(device)
         codi_model.eval()
