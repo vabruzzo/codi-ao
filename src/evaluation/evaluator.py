@@ -22,11 +22,13 @@ from .baselines import LogitLensBaseline, LinearProbeBaseline, BaselineResult
 class EvaluationResult:
     """Result of evaluating on a single example."""
     
-    prompt: str
-    ground_truth: str
+    prompt: str  # Original CODI prompt (truncated)
+    full_prompt: str = ""  # Full original CODI prompt
+    ground_truth: str = ""
     
-    # AO prediction
-    ao_prediction: Optional[str] = None
+    # AO input/output
+    ao_input_prompt: Optional[str] = None  # Full prompt sent to AO
+    ao_prediction: Optional[str] = None  # Raw AO output
     ao_is_correct: Optional[bool] = None
     
     # Baseline predictions
@@ -179,13 +181,14 @@ class CODIAOEvaluator:
                 # AO prediction (if available)
                 ao_pred = None
                 ao_correct_flag = None
+                ao_input_prompt = None
                 if self.ao is not None:
                     # Use ao.create_prompt() to ensure placeholder token consistency
-                    ao_prompt = self.ao.create_prompt(
+                    ao_input_prompt = self.ao.create_prompt(
                         question="What is the intermediate calculation result?",
                         activation_vectors=[latent_vec],
                     )
-                    ao_pred = self.ao.generate(ao_prompt)
+                    ao_pred = self.ao.generate(ao_input_prompt)
                     ao_correct_flag = self._check_match(ao_pred, gt)
                 
                 # Linear Probe prediction (if available)
@@ -200,7 +203,9 @@ class CODIAOEvaluator:
                 # Record result
                 eval_result = EvaluationResult(
                     prompt=prompt[:100] + "...",
+                    full_prompt=prompt,
                     ground_truth=gt,
+                    ao_input_prompt=ao_input_prompt,
                     ao_prediction=ao_pred,
                     ao_is_correct=ao_correct_flag,
                     logit_lens_prediction=ll_result.prediction,
@@ -274,6 +279,7 @@ class CODIAOEvaluator:
         correct = 0
         total = 0
         results_by_type = {}
+        examples = []  # Track individual examples
         
         iterator = tqdm(test_examples, desc="Evaluating classification", disable=not verbose)
         
@@ -327,6 +333,15 @@ class CODIAOEvaluator:
             results_by_type[ctype]["total"] += 1
             if is_correct:
                 results_by_type[ctype]["correct"] += 1
+            
+            # Track individual example
+            examples.append({
+                "question": question,
+                "question_type": ctype,
+                "ground_truth": ground_truth,
+                "ao_prediction": prediction,
+                "is_correct": is_correct,
+            })
         
         # Compute per-type accuracies
         for ctype in results_by_type:
@@ -338,6 +353,7 @@ class CODIAOEvaluator:
             "correct": correct,
             "total": total,
             "by_type": results_by_type,
+            "examples": examples,  # Include all examples
         }
         
         if verbose:
@@ -345,6 +361,16 @@ class CODIAOEvaluator:
             print("\nBy type:")
             for ctype, r in sorted(results_by_type.items()):
                 print(f"  {ctype}: {r['accuracy']:.2%} ({r['correct']}/{r['total']})")
+            
+            # Print some examples
+            print("\n" + "-" * 60)
+            print("CLASSIFICATION EXAMPLES")
+            print("-" * 60)
+            for i, ex in enumerate(examples[:20]):  # Show first 20
+                status = "✓" if ex["is_correct"] else "✗"
+                print(f"\n[{i+1}] {ex['question_type']}")
+                print(f"    Q: {ex['question']}")
+                print(f"    Expected: {ex['ground_truth']}  |  AO: {ex['ao_prediction']}  {status}")
         
         return summary
     
@@ -377,6 +403,7 @@ class CODIAOEvaluator:
             "final": {"correct": 0, "total": 0},
             "overall": {"correct": 0, "total": 0},
         }
+        examples = []  # Track individual examples
         
         iterator = tqdm(test_prompts, desc="Evaluating multi-latent QA", disable=not verbose)
         
@@ -414,11 +441,23 @@ class CODIAOEvaluator:
                 if is_correct:
                     results[key]["correct"] += 1
                     results["overall"]["correct"] += 1
+                
+                # Track individual example
+                examples.append({
+                    "codi_prompt": item["prompt"][:100] + "...",
+                    "question": question,
+                    "question_type": key,
+                    "ground_truth": expected,
+                    "ao_prediction": prediction,
+                    "is_correct": is_correct,
+                })
         
         # Compute accuracies
         for key in results:
             r = results[key]
             r["accuracy"] = r["correct"] / r["total"] if r["total"] > 0 else 0
+        
+        results["examples"] = examples  # Include examples
         
         if verbose:
             print(f"\nMulti-Latent QA Accuracy: {results['overall']['accuracy']:.2%} ({results['overall']['correct']}/{results['overall']['total']})")
@@ -426,6 +465,17 @@ class CODIAOEvaluator:
             for key in ["step1", "step2", "final"]:
                 r = results[key]
                 print(f"  {key}: {r['accuracy']:.2%} ({r['correct']}/{r['total']})")
+            
+            # Print examples
+            print("\n" + "-" * 60)
+            print("MULTI-LATENT EXAMPLES")
+            print("-" * 60)
+            for i, ex in enumerate(examples[:15]):  # Show first 15
+                status = "✓" if ex["is_correct"] else "✗"
+                print(f"\n[{i+1}] {ex['question_type']}")
+                print(f"    CODI: {ex['codi_prompt']}")
+                print(f"    Q: {ex['question']}")
+                print(f"    Expected: {ex['ground_truth']}  |  AO: {ex['ao_prediction']}  {status}")
         
         return results
     
@@ -468,6 +518,68 @@ class CODIAOEvaluator:
             print(f"  z2 AO:         {summary.z2_ao_accuracy:.2%}")
             print(f"  z4 AO:         {summary.z4_ao_accuracy:.2%}")
         print("=" * 60)
+    
+    def _print_all_examples(self, summary: EvaluationSummary):
+        """Print all evaluation examples with predictions."""
+        print("\n" + "=" * 80)
+        print("ALL EVALUATION EXAMPLES")
+        print("=" * 80)
+        
+        for i, result in enumerate(summary.results):
+            pos_name = f"z{result.latent_position + 1}" if result.latent_position >= 0 else "?"
+            ao_status = "✓" if result.ao_is_correct else "✗" if result.ao_is_correct is not None else "-"
+            ll_status = "✓" if result.logit_lens_is_correct else "✗" if result.logit_lens_is_correct is not None else "-"
+            
+            print(f"\n{'─' * 80}")
+            print(f"[{i+1}] Position: {pos_name}  |  Result: {ao_status}")
+            print(f"{'─' * 80}")
+            
+            # Full original prompt (what CODI was asked)
+            print(f"\n📝 CODI PROMPT:")
+            print(f"   {result.full_prompt or result.prompt}")
+            
+            # Ground truth
+            print(f"\n🎯 GROUND TRUTH: {result.ground_truth}")
+            
+            # Logit Lens baseline
+            print(f"\n🔍 LOGIT LENS: {result.logit_lens_prediction} {ll_status}")
+            
+            # Full AO input prompt
+            if result.ao_input_prompt is not None:
+                print(f"\n📨 AO INPUT PROMPT:")
+                # Show the prompt, replacing placeholder token with visible marker
+                # The actual placeholder is " ?" (space + question mark)
+                ao_display = result.ao_input_prompt.replace(" ?", " [LATENT] ")
+                print(f"   {ao_display}")
+            
+            # Full AO output
+            if result.ao_prediction is not None:
+                print(f"\n📤 AO OUTPUT: {result.ao_prediction} {ao_status}")
+            
+            # Linear probe if available
+            if result.linear_probe_prediction is not None:
+                lp_status = "✓" if result.linear_probe_is_correct else "✗"
+                print(f"\n📊 LINEAR PROBE: {result.linear_probe_prediction} {lp_status}")
+        
+        print(f"\n{'=' * 80}")
+    
+    def get_examples_as_dicts(self, summary: EvaluationSummary) -> list[dict]:
+        """Convert evaluation results to list of dicts for JSON serialization."""
+        examples = []
+        for result in summary.results:
+            examples.append({
+                "codi_prompt": result.full_prompt or result.prompt,
+                "ground_truth": result.ground_truth,
+                "latent_position": result.latent_position,
+                "ao_input_prompt": result.ao_input_prompt,
+                "ao_output": result.ao_prediction,
+                "ao_is_correct": result.ao_is_correct,
+                "logit_lens_prediction": result.logit_lens_prediction,
+                "logit_lens_is_correct": result.logit_lens_is_correct,
+                "linear_probe_prediction": result.linear_probe_prediction,
+                "linear_probe_is_correct": result.linear_probe_is_correct,
+            })
+        return examples
 
 
 def run_mvp_evaluation(

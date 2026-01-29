@@ -186,6 +186,12 @@ def main():
             verbose=args.verbose,
         )
         
+        # Print all examples (qualitative output)
+        evaluator._print_all_examples(qa_summary)
+        
+        # Get examples as dicts for JSON
+        qa_examples = evaluator.get_examples_as_dicts(qa_summary)
+        
         all_results["qa"] = {
             "total": qa_summary.total_examples,
             "ao_accuracy": qa_summary.ao_accuracy,
@@ -194,6 +200,7 @@ def main():
             "logit_lens_correct": qa_summary.logit_lens_correct,
             "z2_ao_accuracy": qa_summary.z2_ao_accuracy,
             "z4_ao_accuracy": qa_summary.z4_ao_accuracy,
+            "examples": qa_examples,  # Include all individual results
         }
     
     # 2. Classification evaluation
@@ -253,7 +260,10 @@ def main():
     if "classification" in all_results:
         cls = all_results["classification"]
         print(f"\nClassification:")
-        print(f"  AO:         {cls['accuracy']:.2%} ({cls['correct']}/{cls['total']})")
+        print(f"  Overall:    {cls['accuracy']:.2%} ({cls['correct']}/{cls['total']})")
+        if "by_type" in cls:
+            for ctype, r in sorted(cls["by_type"].items()):
+                print(f"  {ctype}: {r['accuracy']:.2%} ({r['correct']}/{r['total']})")
     
     if "multi_latent" in all_results:
         ml = all_results["multi_latent"]
