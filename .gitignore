@@ -1,0 +1,58 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+references/
+
+# Virtual environments
+.venv
+venv/
+env/
+
+# Type checking
+.mypy_cache/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Data (generated, too large for git)
+data/
+
+# Model checkpoints
+checkpoints/
+
+# Outputs and reports
+outputs/
+reports/
+
+# Wandb
+wandb/
+
+# Downloaded models from HuggingFace
+*.bin
+*.safetensors
+!*.example.safetensors
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

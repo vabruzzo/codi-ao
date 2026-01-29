@@ -1,0 +1,141 @@
+# CODI Activation Oracle - Default Configuration
+
+# =============================================================================
+# Model Settings
+# =============================================================================
+model:
+  # CODI model
+  codi_checkpoint: "bcywinski/codi_llama1b-answer_only"
+  codi_base_model: "meta-llama/Llama-3.2-1B-Instruct"
+  codi_lora_r: 128
+  codi_lora_alpha: 32
+  codi_num_latent: 6
+  codi_use_prj: true
+
+  # Activation Oracle
+  ao_base_model: "meta-llama/Llama-3.2-1B-Instruct"
+  ao_injection_layer: 1 # Inject after this layer
+  ao_placeholder_token: "?"
+
+# =============================================================================
+# LoRA Settings (for AO training)
+# =============================================================================
+lora:
+  rank: 64
+  alpha: 128
+  dropout: 0.05
+  target_modules: "all" # or list of specific modules
+
+# =============================================================================
+# Training Settings
+# =============================================================================
+training:
+  # Batch size
+  batch_size: 16
+  gradient_accumulation_steps: 1
+
+  # Optimizer
+  learning_rate: 1.0e-5
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+
+  # Schedule
+  num_epochs: 1
+  warmup_ratio: 0.1
+
+  # Checkpointing
+  save_steps: 10000
+  eval_steps: 1000
+  logging_steps: 100
+
+  # Data
+  max_seq_length: 512
+
+  # Efficiency
+  gradient_checkpointing: false
+  bf16: true
+
+  # Group-by-length batching (from AO paper)
+  group_by_length: true
+  length_group_window: 20 # Mega-batch size multiplier
+
+# =============================================================================
+# Dataset Settings
+# =============================================================================
+data:
+  # MVP (small scale for validation)
+  mvp_samples: 10000
+
+  # Full training (Phase 2)
+  latent_qa_samples: 64000
+  classification_samples: 336000
+  context_pred_samples: 600000
+
+  # Mix ratios
+  latent_qa_ratio: 0.064 # 6.4%
+  classification_ratio: 0.336 # 33.6%
+  context_pred_ratio: 0.600 # 60%
+
+  # Input format
+  single_latent_ratio: 0.67 # 2/3 single, 1/3 multi
+
+  # Layer settings
+  collection_layers: [0.25, 0.50, 0.75] # As fractions of depth
+  default_layer_percent: 50
+
+# =============================================================================
+# Evaluation Settings
+# =============================================================================
+evaluation:
+  batch_size: 32
+  max_new_tokens: 64
+
+  # Positions to evaluate
+  latent_positions: [2, 4] # z3 and z5
+
+  # MVP exit criteria
+  mvp_logit_lens_threshold: 0.90 # 90% accuracy required
+  mvp_min_samples: 100
+
+# =============================================================================
+# Generation Settings
+# =============================================================================
+generation:
+  max_new_tokens: 64
+  temperature: 0.1
+  top_k: 40
+  top_p: 0.95
+  do_sample: false # Greedy for evaluation
+
+# =============================================================================
+# Paths
+# =============================================================================
+paths:
+  data_dir: "data"
+  checkpoint_dir: "checkpoints"
+  output_dir: "outputs"
+  reports_dir: "reports"
+
+  # Dataset files
+  latent_qa_train: "data/latent_qa_train.jsonl"
+  classification_train: "data/classification_train.jsonl"
+  context_pred_train: "data/context_pred_train.jsonl"
+
+  # Evaluation files
+  test_prompts: "data/test_prompts.json"
+
+# =============================================================================
+# Hardware Settings
+# =============================================================================
+hardware:
+  device: "cuda"
+  dtype: "bfloat16" # or "float16"
+  seed: 42
+
+# =============================================================================
+# Logging
+# =============================================================================
+logging:
+  wandb_project: "codi-activation-oracle"
+  wandb_run_name: null # Auto-generated if null
+  verbose: true
