@@ -65,8 +65,82 @@ COMMONSENSE_EXAMPLES = [
 
 
 def format_prompt(example: dict) -> str:
-    """Format a CommonsenseQA example as a prompt."""
-    return f"{example['question']} Give the answer only and nothing else."
+    """Format a CommonsenseQA example as a prompt (matches CODI's test.py line 147)."""
+    return f"{example['question']} Output only the answer and nothing else."
+
+
+def extract_generation(full_output: str, prompt: str) -> str:
+    """
+    Extract only the model's generated text, removing the prompt.
+    
+    Handles tokenization differences by using multiple strategies.
+    """
+    # Strategy 1: Direct substring removal
+    if prompt in full_output:
+        return full_output[len(prompt):].strip()
+    
+    # Strategy 2: Find the end marker and take everything after
+    markers = ["nothing else.", "nothing else", "Output only the answer"]
+    for marker in markers:
+        if marker in full_output:
+            idx = full_output.rfind(marker) + len(marker)
+            return full_output[idx:].strip()
+    
+    # Strategy 3: Normalize whitespace and try again
+    normalized_prompt = " ".join(prompt.split())
+    normalized_output = " ".join(full_output.split())
+    if normalized_prompt in normalized_output:
+        idx = normalized_output.find(normalized_prompt) + len(normalized_prompt)
+        return normalized_output[idx:].strip()
+    
+    # Strategy 4: Find the instruction suffix and take everything after
+    # CommonsenseQA prompts always end with "Output only the answer and nothing else."
+    suffix = "nothing else."
+    if suffix in full_output:
+        idx = full_output.rfind(suffix) + len(suffix)
+        return full_output[idx:].strip()
+    
+    # Strategy 5: Last resort - if lengths are close, the generation is likely
+    # just a few characters at the end. Only use if difference is small (< 20 chars)
+    # to avoid returning garbage from mis-slicing
+    if len(full_output) > len(prompt) and (len(full_output) - len(prompt)) < 20:
+        return full_output[len(prompt):].strip()
+    
+    # If nothing worked, return empty rather than guess
+    return ""
+
+
+def extract_answer_letter(generation: str) -> str:
+    """
+    Extract answer letter (A-E) from model generation.
+    """
+    import re
+    
+    generation = generation.strip()
+    
+    # Empty generation
+    if not generation:
+        return ""
+    
+    # Single letter answer
+    if generation in "ABCDE":
+        return generation
+    
+    # First character is the answer
+    if generation[0] in "ABCDE":
+        return generation[0]
+    
+    # Pattern like "A." or "A:" or "A)" at start
+    match = re.match(r'^([A-E])[\s\.\:\)\,]', generation)
+    if match:
+        return match.group(1)
+    
+    # Standalone letter
+    match = re.search(r'\b([A-E])\b', generation)
+    if match:
+        return match.group(1)
+    
+    return ""
 
 
 def main():
@@ -105,7 +179,7 @@ def main():
 
     for i, example in enumerate(COMMONSENSE_EXAMPLES[: args.n_examples]):
         prompt = format_prompt(example)
-        expected = example["answer"]
+        expected = example["answer"].strip().upper()
 
         print(f"\n[Example {i + 1}]")
         print(f"Q: {example['question'][:80]}...")
@@ -115,8 +189,15 @@ def main():
         # Collect latents
         result = wrapper.collect_latents(prompt, ground_truth_answer=expected)
 
-        print(f"CODI predicted: {result.predicted_answer}")
-        print(f"Correct: {result.is_correct}")
+        # Extract generation only (not prompt) for proper evaluation
+        full_output = result.predicted_answer
+        generation = extract_generation(full_output, prompt)
+        extracted_answer = extract_answer_letter(generation)
+        is_correct = extracted_answer == expected
+        
+        print(f"Raw generation: '{generation[:60]}...'")
+        print(f"Extracted answer: {extracted_answer}")
+        print(f"Correct: {is_correct}")
 
         # Logit lens on each latent vector
         print("\nLogit Lens (top-3 tokens per latent):")

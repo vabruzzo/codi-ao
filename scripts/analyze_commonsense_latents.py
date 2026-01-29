@@ -26,11 +26,44 @@ import torch
 
 
 def load_commonsenseqa(n_examples: int = 100, split: str = "validation") -> list[dict]:
-    """Load actual CommonsenseQA dataset from HuggingFace."""
+    """Load CommonsenseQA dataset - tries CODI's training data first, then fallback."""
     try:
         from datasets import load_dataset
         
-        print(f"Loading CommonsenseQA {split} split from HuggingFace...")
+        # Try to load the EXACT dataset CODI was trained on
+        print(f"Loading zen-E/CommonsenseQA-GPT4omini (CODI's training data)...")
+        try:
+            dataset = load_dataset("zen-E/CommonsenseQA-GPT4omini")
+            # This dataset has train/validation splits
+            if split in dataset:
+                data = dataset[split]
+            else:
+                data = dataset["validation"] if "validation" in dataset else dataset["train"]
+            
+            examples = []
+            for item in data:
+                # The zen-E dataset should have 'question' and 'answer' fields
+                # Question already includes choices in the correct format
+                question = item["question"].strip()
+                answer = item["answer"].strip()
+                
+                examples.append({
+                    "question": question,
+                    "answer": answer,
+                })
+                
+                if len(examples) >= n_examples:
+                    break
+            
+            print(f"Loaded {len(examples)} examples from zen-E/CommonsenseQA-GPT4omini")
+            return examples
+            
+        except Exception as e:
+            print(f"Could not load zen-E dataset: {e}")
+            print("Falling back to standard commonsense_qa...")
+        
+        # Fallback to standard CommonsenseQA
+        print(f"Loading commonsense_qa {split} split from HuggingFace...")
         dataset = load_dataset("commonsense_qa", split=split)
         
         examples = []
@@ -39,7 +72,7 @@ def load_commonsenseqa(n_examples: int = 100, split: str = "validation") -> list
             question = item["question"]
             choices = item["choices"]
             
-            # Build choice string
+            # Build choice string - match CODI's expected format
             choice_labels = choices["label"]  # ['A', 'B', 'C', 'D', 'E']
             choice_texts = choices["text"]
             
@@ -54,7 +87,7 @@ def load_commonsenseqa(n_examples: int = 100, split: str = "validation") -> list
             if len(examples) >= n_examples:
                 break
         
-        print(f"Loaded {len(examples)} examples from CommonsenseQA")
+        print(f"Loaded {len(examples)} examples from commonsense_qa (fallback)")
         return examples
         
     except ImportError:
@@ -93,23 +126,89 @@ FALLBACK_EXAMPLES = [
 
 
 def format_prompt(question: str) -> str:
-    return f"{question} Give the answer only and nothing else."
+    """Format prompt exactly as CODI expects (from test.py line 147)."""
+    return f"{question} Output only the answer and nothing else."
 
 
-def extract_answer(prediction: str) -> str:
-    """Extract answer letter from prediction."""
-    # Look for single letter answer at the end or standalone
-    prediction = prediction.strip()
+def extract_generation(full_output: str, prompt: str) -> str:
+    """
+    Extract only the model's generated text, removing the prompt.
     
-    # Check last character
-    if prediction and prediction[-1] in "ABCDE":
-        return prediction[-1]
+    Handles tokenization differences by using multiple strategies.
+    """
+    # Strategy 1: Direct substring removal (most common case)
+    if prompt in full_output:
+        return full_output[len(prompt):].strip()
     
-    # Check for letter followed by punctuation at end
-    for i in range(len(prediction) - 1, -1, -1):
-        if prediction[i] in "ABCDE":
-            return prediction[i]
+    # Strategy 2: Find the end marker and take everything after
+    markers = ["nothing else.", "nothing else", "Output only the answer"]
+    for marker in markers:
+        if marker in full_output:
+            idx = full_output.rfind(marker) + len(marker)
+            return full_output[idx:].strip()
     
+    # Strategy 3: Normalize whitespace and try again
+    normalized_prompt = " ".join(prompt.split())
+    normalized_output = " ".join(full_output.split())
+    if normalized_prompt in normalized_output:
+        idx = normalized_output.find(normalized_prompt) + len(normalized_prompt)
+        return normalized_output[idx:].strip()
+    
+    # Strategy 4: Last resort - assume last part is generation
+    # Take everything after the last "?" which likely ends the question
+    if "?" in full_output:
+        idx = full_output.rfind("?") + 1
+        remainder = full_output[idx:].strip()
+        # Skip past "Output only..." if present
+        for marker in markers:
+            if marker in remainder:
+                idx = remainder.find(marker) + len(marker)
+                remainder = remainder[idx:].strip()
+        return remainder
+    
+    return full_output.strip()
+
+
+def extract_answer_from_generation(full_output: str, prompt: str) -> str:
+    """
+    Extract answer letter from model's GENERATED tokens only (not prompt).
+    
+    Args:
+        full_output: The full decoded sequence (prompt + generation)
+        prompt: The original prompt that was sent to the model
+    
+    Returns:
+        Single letter A-E if found in generation, else ""
+    """
+    import re
+    
+    # First extract just the generation
+    generation = extract_generation(full_output, prompt)
+    
+    # Empty generation
+    if not generation:
+        return ""
+    
+    # Check if generation is just a single letter
+    if generation in "ABCDE":
+        return generation
+    
+    # Check first non-whitespace character
+    if generation[0] in "ABCDE":
+        return generation[0]
+    
+    # Look for pattern like "A)" or "A:" or "A." at start
+    match = re.match(r'^([A-E])[\s\.\:\)\,]', generation)
+    if match:
+        return match.group(1)
+    
+    # Look for standalone letter (word boundary)
+    match = re.search(r'\b([A-E])\b', generation)
+    if match:
+        return match.group(1)
+    
+    # NO fallback to any A-E letter - too permissive (picks up "A" from "Also", etc.)
+    # If we can't find a clear answer letter, return empty
     return ""
 
 
@@ -140,8 +239,10 @@ def main():
     from src.codi_wrapper import CODIWrapper
     wrapper = CODIWrapper.from_pretrained(device=args.device)
 
-    # Get special token ID for eocot
+    # Get special token for eocot detection
     eocot_token = "<|eocot|>"
+    # Also check for common eocot-like patterns (model may output similar tokens)
+    eocot_patterns = ["<|eocot|>", "<|eot|>", "eocot", "eot"]
     
     # Analysis containers
     results = []
@@ -155,21 +256,29 @@ def main():
 
     for i, example in enumerate(examples):
         prompt = format_prompt(example["question"])
-        expected = example["answer"]
+        expected = example["answer"].strip().upper()  # Normalize expected answer
 
         # Collect latents
         result = wrapper.collect_latents(prompt, ground_truth_answer=expected)
-        predicted = extract_answer(result.predicted_answer)
+        
+        # Get raw generation for debugging (using robust extraction) - MUST be before verbose print
+        raw_generation = extract_generation(result.predicted_answer, prompt)
+        
+        # Extract answer from GENERATION ONLY (not prompt)
+        predicted = extract_answer_from_generation(result.predicted_answer, prompt)
         is_correct = predicted == expected
 
         if args.verbose:
-            print(f"\n[{i+1}] Expected: {expected}, Predicted: {predicted}, Correct: {is_correct}")
-
+            # Show what the model actually generated (without prompt)
+            gen_preview = raw_generation[:50] if raw_generation else "(empty)"
+            print(f"\n[{i+1}] Expected: {expected}, Generated: '{gen_preview}...', Extracted: {predicted}, Correct: {is_correct}")
+        
         # Analyze each latent position
         example_data = {
             "expected": expected,
             "predicted": predicted,
             "correct": is_correct,
+            "raw_generation": raw_generation[:100],  # First 100 chars
             "latents": [],
         }
 
@@ -188,15 +297,27 @@ def main():
             # Track token distribution
             z_position_tokens[z_name][top1_token] += 1
 
-            # Track first eocot position
-            if eocot_token in top1_token and first_eocot_pos is None:
-                first_eocot_pos = j + 1
+            # Track first eocot position (check multiple patterns)
+            if first_eocot_pos is None:
+                for pattern in eocot_patterns:
+                    if pattern.lower() in top1_token.lower():
+                        first_eocot_pos = j + 1
+                        break
+                # Also check if probability is very high (>0.9) for any eocot-like token
+                if first_eocot_pos is None and top1_prob > 0.9:
+                    if any(p.lower() in top1_token.lower() for p in eocot_patterns):
+                        first_eocot_pos = j + 1
 
-            # Check if answer letter appears in top tokens
+            # Check if answer letter appears as EXACT match in top tokens
+            # (not just as substring - "A" in "Apple" shouldn't count)
             for k, tok in enumerate(top_tokens[:5]):
-                if expected in tok:
-                    answer_found_in_z = z_name
-                    answer_in_latent[z_name] += 1
+                tok_clean = tok.strip()
+                # Only count if token IS the letter or letter with punctuation
+                if tok_clean == expected or tok_clean in [f"{expected}.", f"{expected}:", f"{expected})"]:
+                    if answer_found_in_z is None:  # Only count first occurrence
+                        answer_found_in_z = z_name
+                        answer_in_latent[z_name] += 1
+                    break
 
             example_data["latents"].append({
                 "position": z_name,
@@ -229,6 +350,12 @@ def main():
     n_correct = len(correct_vs_incorrect["correct"])
     n_total = len(results)
     print(f"\n1. CODI Accuracy: {n_correct}/{n_total} ({n_correct/n_total*100:.1f}%)")
+    
+    # Show some example generations for sanity check
+    print("\n   Sample generations (first 5):")
+    for i, ex in enumerate(results[:5]):
+        raw = ex.get('raw_generation', '')[:40]
+        print(f"   [{i+1}] Expected: {ex['expected']}, Generated: '{raw}...', Extracted: {ex['predicted']}, Correct: {ex['correct']}")
 
     # 2. When does eocot first appear?
     print("\n2. First <|eocot|> Position (how many latent steps used):")
