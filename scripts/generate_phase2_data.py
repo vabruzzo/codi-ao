@@ -3,10 +3,18 @@
 Phase 2 Data Generation Script.
 
 Generates the full training dataset with:
-- QA examples (~64k, 16%)
-- Classification examples (~336k, 84%)
+- QA examples (single-latent and multi-latent)
+- Classification examples (yes/no questions about latent properties)
 
-Total: ~400k examples
+Key settings:
+- qa_ratio: Fraction of prompts used for QA (default 0.5)
+- max_class_per_prompt: Limits classification examples per prompt (default 4)
+- multi_latent_ratio: Fraction of QA that uses all 6 latents (default 0.33)
+
+Expected output with defaults (50k prompts):
+- ~75k QA examples
+- ~100k classification examples
+- Total: ~175k examples
 
 Usage:
     python scripts/generate_phase2_data.py --n_prompts 50000 --verbose
@@ -33,8 +41,9 @@ def main():
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--qa_ratio", type=float, default=0.50, help="Ratio of prompts used for QA (higher because classification generates more per prompt)")
+    parser.add_argument("--qa_ratio", type=float, default=0.50, help="Ratio of prompts used for QA")
     parser.add_argument("--multi_latent_ratio", type=float, default=0.33, help="Ratio of multi-latent examples in QA")
+    parser.add_argument("--max_class_per_prompt", type=int, default=4, help="Max classification examples per prompt (limits imbalance)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -208,14 +217,24 @@ def main():
         def vec_to_list(v):
             return v.cpu().tolist() if hasattr(v, 'cpu') else v
         
-        # Generate examples for z2 and z4
+        # Generate examples for z2 and z4 (limit per prompt to avoid imbalance)
+        prompt_examples = 0
+        task_list = list(CLASSIFICATION_TASKS.items())
+        random.shuffle(task_list)  # Randomize which tasks we pick
+        
         for lat_pos, step_idx in [(1, 0), (3, 1)]:
+            if prompt_examples >= args.max_class_per_prompt:
+                break
+                
             latent_vec = result.latent_vectors[lat_pos]
             cot_step = cot_steps[step_idx] if step_idx < len(cot_steps) else ""
             step_result = results[step_idx] if step_idx < len(results) else ""
             
-            # Try each classification task
-            for task_name, task in CLASSIFICATION_TASKS.items():
+            # Try each classification task (randomized order)
+            for task_name, task in task_list:
+                if prompt_examples >= args.max_class_per_prompt:
+                    break
+                    
                 condition = task["condition"]
                 
                 try:
@@ -250,6 +269,7 @@ def main():
                     "task": "classification",
                 })
                 
+                prompt_examples += 1
                 if answer == "Yes":
                     yes_count += 1
                 else:

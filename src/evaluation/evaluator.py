@@ -258,7 +258,11 @@ class CODIAOEvaluator:
         Evaluate yes/no classification accuracy.
         
         Args:
-            test_examples: List of ClassificationExample objects
+            test_examples: List of dicts or ClassificationExample objects with:
+                - latent_vectors (list of lists) or latent_vector (single list)
+                - question: str
+                - answer: "Yes" or "No"
+                - question_type or classification_type: str
             verbose: Show progress
         
         Returns:
@@ -274,16 +278,37 @@ class CODIAOEvaluator:
         iterator = tqdm(test_examples, desc="Evaluating classification", disable=not verbose)
         
         for ex in iterator:
-            latent_vec = torch.tensor(ex.latent_vector)
+            # Handle both dict and object formats
+            if isinstance(ex, dict):
+                # New format: latent_vectors (list of lists)
+                if "latent_vectors" in ex:
+                    latent_vecs = [torch.tensor(v) for v in ex["latent_vectors"]]
+                elif "latent_vector" in ex:
+                    latent_vecs = [torch.tensor(ex["latent_vector"])]
+                else:
+                    continue
+                question = ex.get("question", "")
+                ground_truth = ex.get("answer", "").lower()
+                ctype = ex.get("question_type", ex.get("classification_type", "unknown"))
+            else:
+                # Old format: ClassificationExample object
+                if hasattr(ex, "latent_vectors"):
+                    latent_vecs = [torch.tensor(v) for v in ex.latent_vectors]
+                elif hasattr(ex, "latent_vector"):
+                    latent_vecs = [torch.tensor(ex.latent_vector)]
+                else:
+                    continue
+                question = ex.question
+                ground_truth = ex.answer.lower()
+                ctype = getattr(ex, "classification_type", getattr(ex, "question_type", "unknown"))
             
             # Use ao.create_prompt() to ensure placeholder token consistency
             ao_prompt = self.ao.create_prompt(
-                question=ex.question,
-                activation_vectors=[latent_vec],
+                question=question,
+                activation_vectors=latent_vecs,
             )
             
             prediction = self.ao.generate(ao_prompt).strip().lower()
-            ground_truth = ex.answer.lower()
             
             # Check if prediction contains yes/no
             is_correct = False
@@ -297,7 +322,6 @@ class CODIAOEvaluator:
             total += 1
             
             # Track by type
-            ctype = ex.classification_type
             if ctype not in results_by_type:
                 results_by_type[ctype] = {"correct": 0, "total": 0}
             results_by_type[ctype]["total"] += 1
@@ -317,12 +341,93 @@ class CODIAOEvaluator:
         }
         
         if verbose:
-            print(f"\nClassification Accuracy: {summary['accuracy']:.2%}")
+            print(f"\nClassification Accuracy: {summary['accuracy']:.2%} ({correct}/{total})")
             print("\nBy type:")
-            for ctype, r in results_by_type.items():
+            for ctype, r in sorted(results_by_type.items()):
                 print(f"  {ctype}: {r['accuracy']:.2%} ({r['correct']}/{r['total']})")
         
         return summary
+    
+    def evaluate_multi_latent_qa(
+        self,
+        test_prompts: list[dict],
+        verbose: bool = True,
+    ) -> dict:
+        """
+        Evaluate multi-latent QA where all 6 latent vectors are provided.
+        
+        Tests questions like "What was the first step result?" when given all latents.
+        
+        Args:
+            test_prompts: List of dicts with 'prompt', 'step1_result', 'step2_result', 'final_answer'
+            verbose: Show progress
+        
+        Returns:
+            Dict with accuracy metrics
+        """
+        if self.ao is None:
+            raise ValueError("Activation Oracle not provided")
+        
+        from ..datasets.latent_qa import MULTI_LATENT_TEMPLATES
+        import random
+        
+        results = {
+            "step1": {"correct": 0, "total": 0},
+            "step2": {"correct": 0, "total": 0},
+            "final": {"correct": 0, "total": 0},
+            "overall": {"correct": 0, "total": 0},
+        }
+        
+        iterator = tqdm(test_prompts, desc="Evaluating multi-latent QA", disable=not verbose)
+        
+        for item in iterator:
+            # Collect all 6 latent vectors
+            codi_result = self.codi_wrapper.collect_latents(item["prompt"])
+            
+            if len(codi_result.latent_vectors) < 6:
+                continue
+            
+            all_latents = [v for v in codi_result.latent_vectors[:6]]
+            
+            # Test different question types
+            test_cases = [
+                ("What was calculated in the first step?", str(item.get("step1_result", "")), "step1"),
+                ("What was the result of the second calculation?", str(item.get("step2_result", "")), "step2"),
+                ("What is the final answer?", str(item.get("final_answer", "")), "final"),
+            ]
+            
+            for question, expected, key in test_cases:
+                if not expected:
+                    continue
+                    
+                ao_prompt = self.ao.create_prompt(
+                    question=question,
+                    activation_vectors=all_latents,
+                )
+                
+                prediction = self.ao.generate(ao_prompt)
+                is_correct = self._check_match(prediction, expected)
+                
+                results[key]["total"] += 1
+                results["overall"]["total"] += 1
+                
+                if is_correct:
+                    results[key]["correct"] += 1
+                    results["overall"]["correct"] += 1
+        
+        # Compute accuracies
+        for key in results:
+            r = results[key]
+            r["accuracy"] = r["correct"] / r["total"] if r["total"] > 0 else 0
+        
+        if verbose:
+            print(f"\nMulti-Latent QA Accuracy: {results['overall']['accuracy']:.2%} ({results['overall']['correct']}/{results['overall']['total']})")
+            print("\nBy question type:")
+            for key in ["step1", "step2", "final"]:
+                r = results[key]
+                print(f"  {key}: {r['accuracy']:.2%} ({r['correct']}/{r['total']})")
+        
+        return results
     
     def _check_match(self, prediction: str, ground_truth: str) -> bool:
         """Check if prediction matches ground truth."""
