@@ -303,20 +303,142 @@ def extract_answer_from_generation(full_output: str, prompt: str) -> str:
     return ""
 
 
+def load_socialiqa(n_examples: int = 100) -> list[dict]:
+    """Load SocialIQA as a held-out commonsense dataset (not used in CODI training)."""
+    try:
+        from datasets import load_dataset
+        
+        print("Loading SocialIQA (held-out dataset)...")
+        dataset = load_dataset("social_i_qa", split="validation")
+        
+        examples = []
+        for item in dataset:
+            # SocialIQA format: context, question, answerA/B/C, label (1/2/3)
+            context = item["context"]
+            question = item["question"]
+            choices = [item["answerA"], item["answerB"], item["answerC"]]
+            label = int(item["label"]) - 1  # Convert 1-indexed to 0-indexed
+            answer_letter = ["A", "B", "C"][label]
+            
+            # Format like CommonsenseQA
+            choice_str = " ".join([f"{chr(65+i)}: {c}" for i, c in enumerate(choices)])
+            full_question = f"{context} {question} Choices: {choice_str}"
+            
+            examples.append({
+                "question": full_question,
+                "answer": answer_letter,
+                "choices": {chr(65+i): c for i, c in enumerate(choices)},  # Store for shuffling
+            })
+            
+            if len(examples) >= n_examples:
+                break
+        
+        print(f"Loaded {len(examples)} examples from SocialIQA")
+        return examples
+    except Exception as e:
+        print(f"Could not load SocialIQA: {e}")
+        return None
+
+
+def shuffle_choices(question: str, answer: str, choices: dict = None) -> tuple[str, str, dict]:
+    """
+    Shuffle the choice order in a question and return new question, new answer letter, and mapping.
+    
+    This tests if the latent tracks the CONTENT or just the POSITION (A/B/C/D/E).
+    """
+    import re
+    
+    # If choices dict not provided, try to parse from question
+    if choices is None:
+        choices = parse_choices(question)
+    
+    if len(choices) < 2:
+        return question, answer, {}
+    
+    # Get original answer content
+    original_answer_text = choices.get(answer, "")
+    
+    # Shuffle the letters
+    letters = list(choices.keys())
+    texts = [choices[l] for l in letters]
+    
+    # Create shuffled mapping
+    random.shuffle(letters)
+    new_choices = {letters[i]: texts[i] for i in range(len(texts))}
+    
+    # Find new answer letter (which letter now has the original answer text)
+    new_answer = answer  # default
+    for letter, text in new_choices.items():
+        if text.lower() == original_answer_text.lower():
+            new_answer = letter
+            break
+    
+    # Rebuild the question with shuffled choices
+    # Find and replace the choices section
+    choice_str = " ".join([f"{l}: {new_choices[l]}" for l in sorted(new_choices.keys())])
+    
+    # Try to find the choices section and replace it
+    if "Choices:" in question:
+        base = question.split("Choices:")[0]
+        new_question = f"{base}Choices: {choice_str}"
+    else:
+        # Just append
+        new_question = f"{question} Choices: {choice_str}"
+    
+    return new_question, new_answer, {"original": answer, "shuffled": new_answer, "mapping": new_choices}
+
+
+def calculate_entropy(probs: list[float]) -> float:
+    """Calculate entropy of a probability distribution."""
+    import math
+    entropy = 0.0
+    for p in probs:
+        if p > 0:
+            entropy -= p * math.log2(p)
+    return entropy
+
+
+def calculate_margin(probs: list[float]) -> float:
+    """Calculate margin between top-1 and top-2 probabilities."""
+    if len(probs) < 2:
+        return probs[0] if probs else 0.0
+    sorted_probs = sorted(probs, reverse=True)
+    return sorted_probs[0] - sorted_probs[1]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze CODI latents on CommonsenseQA")
     parser.add_argument("--n_examples", type=int, default=30)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--use_real_data", action="store_true", help="Load actual CommonsenseQA from HuggingFace")
+    
+    # New ablation flags
+    parser.add_argument("--held_out", action="store_true", help="Use SocialIQA as held-out test set")
+    parser.add_argument("--shuffle_choices", action="store_true", help="Shuffle choice order to test position vs content")
+    parser.add_argument("--report_entropy", action="store_true", help="Report entropy and margin at z2/z3")
+    parser.add_argument("--no_choices_prompt", action="store_true", help="Test prompt without explicit Choices: format")
     args = parser.parse_args()
 
     print("=" * 70)
     print("CODI CommonsenseQA Latent Analysis")
+    if args.held_out:
+        print("(Using HELD-OUT dataset: SocialIQA)")
+    if args.shuffle_choices:
+        print("(SHUFFLE ABLATION: randomizing choice order)")
+    if args.report_entropy:
+        print("(Reporting entropy/margin metrics)")
+    if args.no_choices_prompt:
+        print("(NO-CHOICES prompt ablation)")
     print("=" * 70)
 
     # Load examples
-    if args.use_real_data:
+    if args.held_out:
+        examples = load_socialiqa(n_examples=args.n_examples)
+        if examples is None:
+            print("Failed to load SocialIQA, falling back to CommonsenseQA")
+            examples = load_commonsenseqa(n_examples=args.n_examples)
+    elif args.use_real_data:
         examples = load_commonsenseqa(n_examples=args.n_examples)
         if examples is None:
             examples = FALLBACK_EXAMPLES[:args.n_examples]
@@ -361,13 +483,42 @@ def main():
     # Track what OTHER tokens appear in top-5 alongside the predicted letter
     other_tokens_in_top5 = Counter()  # tokens that aren't A-E
     letter_tokens_in_top5 = Counter() # tokens that ARE A-E (competing choices)
+    
+    # Entropy and margin tracking
+    z2_entropies = []
+    z3_entropies = []
+    z2_margins = []
+    z3_margins = []
+    
+    # Shuffle ablation tracking
+    shuffle_latent_tracks_original = 0  # Latent shows ORIGINAL answer letter (content tracking)
+    shuffle_latent_tracks_shuffled = 0  # Latent shows SHUFFLED answer letter (position tracking)
+    shuffle_total = 0
 
     print(f"\nAnalyzing {len(examples)} examples...")
     print("-" * 70)
 
     for i, example in enumerate(examples):
-        prompt = format_prompt(example["question"])
-        expected = example["answer"].strip().upper()  # Normalize expected answer
+        question = example["question"]
+        expected = example["answer"].strip().upper()
+        original_expected = expected  # Keep track for shuffle ablation
+        
+        # Get choices dict if available (for shuffle ablation)
+        choices_dict = example.get("choices", None)
+        
+        # Apply shuffle ablation if requested
+        shuffle_info = None
+        if args.shuffle_choices:
+            question, expected, shuffle_info = shuffle_choices(question, expected, choices_dict)
+            shuffle_total += 1
+        
+        # Apply no-choices prompt ablation if requested
+        if args.no_choices_prompt:
+            # Remove "Choices:" section from prompt
+            if "Choices:" in question:
+                question = question.split("Choices:")[0].strip()
+        
+        prompt = format_prompt(question)
 
         # Collect latents
         result = wrapper.collect_latents(prompt, ground_truth_answer=expected)
@@ -380,7 +531,7 @@ def main():
         is_correct = predicted == expected
 
         # Parse choices to get answer concept for this example
-        choices = parse_choices(example["question"])
+        choices = parse_choices(question)
         answer_concept = choices.get(expected, "")  # e.g., "ignore" for answer "A"
         
         if args.verbose:
@@ -527,6 +678,31 @@ def main():
                     letter_tokens_in_top5[tok_clean] += 1
                 else:
                     other_tokens_in_top5[tok_clean] += 1
+            
+            # Track entropy and margin if requested
+            if args.report_entropy:
+                z2_probs = [p for _, p in z2_data["top5"]]
+                z3_probs = [p for _, p in z3_data["top5"]]
+                z2_entropies.append(calculate_entropy(z2_probs))
+                z3_entropies.append(calculate_entropy(z3_probs))
+                z2_margins.append(calculate_margin(z2_probs))
+                z3_margins.append(calculate_margin(z3_probs))
+            
+            # Track shuffle ablation results
+            if args.shuffle_choices and shuffle_info:
+                original_letter = shuffle_info.get("original", "")
+                shuffled_letter = shuffle_info.get("shuffled", "")
+                
+                # Check if z2/z3 top-5 contains original or shuffled letter
+                all_top5_tokens = [t.strip() for t, _ in z2_data["top5"]] + [t.strip() for t, _ in z3_data["top5"]]
+                
+                has_original = any(t == original_letter or t in [f"{original_letter}.", f"{original_letter}:"] for t in all_top5_tokens)
+                has_shuffled = any(t == shuffled_letter or t in [f"{shuffled_letter}.", f"{shuffled_letter}:"] for t in all_top5_tokens)
+                
+                if has_original and original_letter != shuffled_letter:
+                    shuffle_latent_tracks_original += 1  # Content tracking
+                if has_shuffled:
+                    shuffle_latent_tracks_shuffled += 1  # Position tracking
 
         # Track eocot position
         if first_eocot_pos:
@@ -652,6 +828,42 @@ def main():
     print(f"\n      Competing LETTER tokens in z2 top-5:")
     for tok, count in letter_tokens_in_top5.most_common(10):
         print(f"         '{tok}': {count}")
+    
+    # Report entropy and margin if requested
+    if args.report_entropy and z2_entropies:
+        print("\n" + "=" * 70)
+        print("ENTROPY & MARGIN ANALYSIS (commitment strength)")
+        print("=" * 70)
+        avg_z2_entropy = sum(z2_entropies) / len(z2_entropies)
+        avg_z3_entropy = sum(z3_entropies) / len(z3_entropies)
+        avg_z2_margin = sum(z2_margins) / len(z2_margins)
+        avg_z3_margin = sum(z3_margins) / len(z3_margins)
+        
+        print(f"\n   Average entropy (lower = more confident):")
+        print(f"      z2: {avg_z2_entropy:.3f} bits")
+        print(f"      z3: {avg_z3_entropy:.3f} bits")
+        print(f"\n   Average margin (top1 - top2, higher = more confident):")
+        print(f"      z2: {avg_z2_margin:.3f}")
+        print(f"      z3: {avg_z3_margin:.3f}")
+        
+        # Max entropy for 5 items is log2(5) = 2.32 bits
+        print(f"\n   Interpretation:")
+        print(f"      Max entropy for 5 items: 2.32 bits")
+        print(f"      z2 is {'less' if avg_z2_entropy > avg_z3_entropy else 'more'} confident than z3")
+    
+    # Report shuffle ablation if requested
+    if args.shuffle_choices and shuffle_total > 0:
+        print("\n" + "=" * 70)
+        print("SHUFFLE ABLATION (content vs position tracking)")
+        print("=" * 70)
+        print(f"\n   Total shuffled examples: {shuffle_total}")
+        print(f"   Latent contains ORIGINAL answer letter: {shuffle_latent_tracks_original} ({shuffle_latent_tracks_original/shuffle_total*100:.1f}%)")
+        print(f"   Latent contains SHUFFLED answer letter: {shuffle_latent_tracks_shuffled} ({shuffle_latent_tracks_shuffled/shuffle_total*100:.1f}%)")
+        
+        print(f"\n   Interpretation:")
+        print(f"      If 'original' >> 'shuffled': latent tracks CONTENT (the actual answer)")
+        print(f"      If 'shuffled' >> 'original': latent tracks POSITION (just the letter)")
+        print(f"      If similar: latent tracks BOTH or neither clearly")
 
     # 5. Correct vs Incorrect patterns
     print("\n5. Correct vs Incorrect Predictions:")
