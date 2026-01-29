@@ -258,19 +258,21 @@ def run_mvp_validation(wrapper, test_prompts, verbose=True, diagnose=False):
             if num == final_gt:
                 final_hits_by_position[i] += 1
         
-        # Use z3 (index 2) for step 1, z5 (index 4) for step 2
-        z3_num = all_preds[2]["num"]
-        z5_num = all_preds[4]["num"]
+        # Use z2 (index 1) for step 1, z4 (index 3) for step 2
+        # Note: Blog says "z3/z5" counting WITH prompt position at 0
+        # Our latent_vectors excludes prompt, so we use indices 1 and 3
+        z2_num = all_preds[1]["num"]
+        z4_num = all_preds[3]["num"]
         
-        z3_match = z3_num is not None and z3_num == step1_gt
-        z5_match = z5_num is not None and z5_num == step2_gt
+        z2_match = z2_num is not None and z2_num == step1_gt
+        z4_match = z4_num is not None and z4_num == step2_gt
         
         z3_total += 1
         z5_total += 1
         
-        if z3_match:
+        if z2_match:
             z3_correct += 1
-        if z5_match:
+        if z4_match:
             z5_correct += 1
         
         detail = {
@@ -278,12 +280,12 @@ def run_mvp_validation(wrapper, test_prompts, verbose=True, diagnose=False):
             "step1_gt": step1_gt,
             "step2_gt": step2_gt,
             "final_gt": final_gt,
-            "z3_pred": all_preds[2]["token"],
-            "z3_prob": all_preds[2]["prob"],
-            "z3_match": z3_match,
-            "z5_pred": all_preds[4]["token"],
-            "z5_prob": all_preds[4]["prob"],
-            "z5_match": z5_match,
+            "z2_pred": all_preds[1]["token"],
+            "z2_prob": all_preds[1]["prob"],
+            "z2_match": z2_match,
+            "z4_pred": all_preds[3]["token"],
+            "z4_prob": all_preds[3]["prob"],
+            "z4_match": z4_match,
             "model_answer": result.predicted_answer,
             "correct": result.is_correct,
         }
@@ -388,8 +390,8 @@ def main():
     print("\n" + "=" * 60)
     print("MVP VALIDATION RESULTS")
     print("=" * 60)
-    print(f"z3 (Step 1) Accuracy: {results['z3_accuracy']:.2%} ({results['z3_correct']}/{results['z3_total']})")
-    print(f"z5 (Step 2) Accuracy: {results['z5_accuracy']:.2%} ({results['z5_correct']}/{results['z5_total']})")
+    print(f"z2 (Step 1) Accuracy: {results['z3_accuracy']:.2%} ({results['z3_correct']}/{results['z3_total']})")
+    print(f"z4 (Step 2) Accuracy: {results['z5_accuracy']:.2%} ({results['z5_correct']}/{results['z5_total']})")
     
     # Print diagnostic info if available
     if args.diagnose and "diagnosis" in results:
@@ -415,15 +417,15 @@ def main():
     
     # Check exit criteria (matches config and README: 90%)
     MVP_THRESHOLD = 0.90
-    z3_pass = results['z3_accuracy'] >= MVP_THRESHOLD
-    z5_pass = results['z5_accuracy'] >= MVP_THRESHOLD
+    z2_pass = results['z3_accuracy'] >= MVP_THRESHOLD
+    z4_pass = results['z5_accuracy'] >= MVP_THRESHOLD
     
     print("\n" + "-" * 60)
     print(f"MVP Exit Criteria (threshold: {MVP_THRESHOLD:.0%}):")
-    print(f"  z3: {'PASS ✓' if z3_pass else 'FAIL ✗'}")
-    print(f"  z5: {'PASS ✓' if z5_pass else 'FAIL ✗'}")
+    print(f"  z2 (Step 1): {'PASS ✓' if z2_pass else 'FAIL ✗'}")
+    print(f"  z4 (Step 2): {'PASS ✓' if z4_pass else 'FAIL ✗'}")
     
-    if z3_pass and z5_pass:
+    if z2_pass and z4_pass:
         print("\n✓ MVP VALIDATION PASSED - Ready to proceed to Phase 2")
     else:
         print("\n✗ MVP VALIDATION FAILED - Investigate before proceeding")
@@ -441,8 +443,8 @@ def main():
         print("Example results:")
         for i, d in enumerate(results["details"][:5]):
             print(f"\n  [{i+1}] {d['prompt']}")
-            print(f"      Step1 GT: {d['step1_gt']}, z3 pred: {d['z3_pred']} (prob={d['z3_prob']:.3f}) {'✓' if d['z3_match'] else '✗'}")
-            print(f"      Step2 GT: {d['step2_gt']}, z5 pred: {d['z5_pred']} (prob={d['z5_prob']:.3f}) {'✓' if d['z5_match'] else '✗'}")
+            print(f"      Step1 GT: {d['step1_gt']}, z2 pred: {d['z2_pred']} (prob={d['z2_prob']:.3f}) {'✓' if d['z2_match'] else '✗'}")
+            print(f"      Step2 GT: {d['step2_gt']}, z4 pred: {d['z4_pred']} (prob={d['z4_prob']:.3f}) {'✓' if d['z4_match'] else '✗'}")
 
 
 if __name__ == "__main__":
