@@ -102,7 +102,7 @@ def load_gsm8k_prompts(n: int, split: str = "test", seed: int = 42) -> list[dict
         intermediate_results, final_answer = parse_gsm8k_answer(answer)
         
         # Skip problems with fewer than 2 intermediate steps
-        # (we need at least step1 for z3 and step2 for z5)
+        # (we need at least step1 for z2 and step2 for z4)
         if len(intermediate_results) < 2:
             skipped += 1
             continue
@@ -135,7 +135,7 @@ def create_synthetic_prompts(n: int, seed: int = 42) -> list[dict]:
     - Addition: (X+Y)*Z + (X+Y)
     - Subtraction: (X-Y)*Z + (X-Y)
     
-    Step 1 result -> z3, Step 2 result -> z5
+    Step 1 result -> z2 (index 1), Step 2 result -> z4 (index 3)
     """
     random.seed(seed)
     
@@ -222,7 +222,7 @@ def create_synthetic_prompts(n: int, seed: int = 42) -> list[dict]:
 
 def run_mvp_validation(wrapper, test_prompts, verbose=True, diagnose=False):
     """
-    Run MVP validation: check logit lens accuracy on z3 and z5.
+    Run MVP validation: check logit lens accuracy on z2 and z4.
     
     Args:
         diagnose: If True, check all latent positions to find where steps are encoded

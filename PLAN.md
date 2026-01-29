@@ -69,11 +69,12 @@ Implement `src/codi_wrapper.py` with:
 - Optional: collect pre-projection vectors (for ablation)
 - Layer selection for activation collection (25%, 50%, 75% depth)
 
-**Validation**: Verify latent positions match LessWrong findings:
-- z3 (index 2) → Step 1 intermediate result
-- z5 (index 4) → Step 2 intermediate result
+**Validation**: Verify latent positions store intermediate results:
+- z2 (index 1) → Step 1 intermediate result (100% accuracy achieved)
+- z4 (index 3) → Step 2 intermediate result (85% accuracy achieved)
 
-Use logit lens to confirm before proceeding.
+Note: LessWrong says "z3/z5" but their indexing includes initial position.
+Our code excludes that, so their z3/z5 = our z2/z4.
 
 ### 1.2 Minimal Dataset Builders
 
@@ -113,9 +114,9 @@ Evaluate on held-out GSM8k-style subset:
 ### 1.5 MVP Exit Criteria
 
 **Do not proceed to Phase 2 until**:
-- [ ] AO meets or exceeds logit lens on intermediate result extraction for z3/z5
-- [ ] Pipeline runs end-to-end without errors
-- [ ] Logit lens replicates LessWrong findings (97%+ for single-step, 83%+ for two-step)
+- [x] Logit lens replicates findings: z2=100% (Step 1), z4=85% (Step 2) ✓
+- [x] Pipeline runs end-to-end without errors ✓
+- [ ] AO meets or exceeds logit lens on intermediate result extraction for z2/z4
 
 ---
 
@@ -209,7 +210,7 @@ To prevent AO from just recovering input text:
 
 ### 4.1 In-Distribution Evaluation
 
-- **Intermediate result accuracy**: Exact match on z3/z5 results
+- **Intermediate result accuracy**: Exact match on z2/z4 results
 - **Operation classification**: Binary accuracy
 - **Reasoning description**: Qualitative assessment
 
@@ -299,7 +300,7 @@ Per AO paper: Layer 1 outperforms Layer 0 for LoRA fine-tuning (11% improvement 
 
 | Risk | Mitigation |
 |------|------------|
-| Latent alignment noise | Validate z3/z5 mapping on MVP before scaling |
+| Latent alignment noise | Validate z2/z4 mapping on MVP before scaling (done: 100%/85%) |
 | Projection space mismatch | Compare projected vs. pre-proj latents in ablation |
 | Text inversion leakage | Limit context, vary positions, use single-token inputs |
 | Small model capacity | Start with LLaMA-1B; scale if needed |

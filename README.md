@@ -14,8 +14,8 @@ Training and evaluating Activation Oracles to interpret CODI's latent reasoning 
 # Install dependencies
 uv sync
 
-# Run MVP validation (verifies z3/z5 store intermediate results)
-uv run python scripts/collect_latents.py --n_samples 100 --verbose
+# Run MVP validation (verifies z2/z4 store intermediate results)
+uv run python scripts/collect_latents.py --n_samples 100 --verbose --synthetic
 
 # Train the Activation Oracle
 uv run python scripts/train.py --mode mvp --n_samples 10000
@@ -72,10 +72,13 @@ codi-ao/
 
 ## Key Technical Details
 
-### Latent Position Mapping (from LessWrong)
-For 3-step math problems:
-- **z3 (index 2)**: Stores Step 1 intermediate result
-- **z5 (index 4)**: Stores Step 2 intermediate result
+### Latent Position Mapping
+For 3-step math problems (using exact templates from CODI paper):
+- **z2 (index 1)**: Stores Step 1 intermediate result (100% accuracy)
+- **z4 (index 3)**: Stores Step 2 intermediate result (85% accuracy)
+
+Note: The LessWrong blog says "z3/z5" but their indexing includes an initial position.
+Our code excludes that, so their z3/z5 = our z2/z4.
 
 ### Injection Mechanism
 Norm-matched additive injection:

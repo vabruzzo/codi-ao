@@ -375,7 +375,7 @@ class ActivationOracle:
         # Create a prompt with activation vectors
         prompt = AOPrompt.from_question(
             question="What is the intermediate calculation result?",
-            activation_vectors=[z3_vector],  # From CODI
+            activation_vectors=[z2_vector],  # From CODI latent position 1 (z2)
             layer_percent=50,
         )
 

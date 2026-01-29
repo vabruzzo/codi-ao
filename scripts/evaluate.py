@@ -88,7 +88,7 @@ def main():
     
     summary = evaluator.evaluate_intermediate_results(
         test_prompts=test_prompts,
-        positions=[2, 4],
+        positions=[1, 3],  # z2 and z4
         verbose=args.verbose,
     )
     

@@ -161,7 +161,7 @@ CLASSIFICATION_TASKS = {
             "Does this step compute a value?",
             "Is this a computational step?",
         ],
-        "condition": lambda step, result, pos: pos in [2, 4],  # z3 and z5
+        "condition": lambda step, result, pos: pos in [1, 3],  # z2 and z4
         "type": "structure",
     },
 }
@@ -220,8 +220,8 @@ class ClassificationDatasetGenerator:
 
         # Position to step mapping
         self.position_to_step = {
-            2: 0,  # z3 → first intermediate result
-            4: 1,  # z5 → second intermediate result
+            1: 0,  # z2 → first intermediate result
+            3: 1,  # z4 → second intermediate result
         }
 
     def generate_from_prompts(
@@ -388,7 +388,7 @@ def create_synthetic_examples(
         example = ClassificationExample(
             prompt=oracle_prompt,
             latent_vector=torch.randn(2048).tolist(),
-            latent_position=random.choice([2, 4]),
+            latent_position=random.choice([1, 3]),  # z2 or z4
             layer_percent=50,
             question=question,
             answer=answer,

@@ -4,9 +4,11 @@ Latent-to-CoT QA Dataset Generator.
 Generates question-answer pairs by aligning CODI's latent vectors
 with the intermediate steps from the teacher's explicit CoT.
 
-Based on LessWrong findings:
-- z3 (index 2) stores Step 1 intermediate result
-- z5 (index 4) stores Step 2 intermediate result
+Latent position mapping (for 3-step math problems):
+- z2 (index 1) stores Step 1 intermediate result
+- z4 (index 3) stores Step 2 intermediate result
+
+Note: LessWrong says "z3/z5" but their indexing includes initial position.
 """
 
 import json
@@ -152,11 +154,11 @@ class LatentQADatasetGenerator:
         self.layer_percent = layer_percent
         self.placeholder_token = placeholder_token or DEFAULT_PLACEHOLDER_TOKEN
         
-        # Latent position to CoT step mapping (per LessWrong findings)
-        # For 3-step problems: z3 → step1, z5 → step2
+        # Latent position to CoT step mapping
+        # For 3-step problems: z2 → step1, z4 → step2
         self.position_to_step = {
-            2: 0,  # z3 → first intermediate result
-            4: 1,  # z5 → second intermediate result
+            1: 0,  # z2 → first intermediate result
+            3: 1,  # z4 → second intermediate result
         }
     
     def generate_from_prompts(
@@ -229,8 +231,8 @@ class LatentQADatasetGenerator:
                         answer = operation
                     elif q_type == "structure":
                         question = random.choice(STRUCTURE_TEMPLATES)
-                        # z3 and z5 should be calculation steps
-                        answer = "calculation step" if lat_pos in [2, 4] else "transitional"
+                        # z2 and z4 should be calculation steps
+                        answer = "calculation step" if lat_pos in [1, 3] else "transitional"
                     else:
                         continue
                     
@@ -369,7 +371,7 @@ def create_synthetic_examples(
         example = LatentQAExample(
             prompt=oracle_prompt,
             latent_vector=torch.randn(2048).tolist(),  # Random vector
-            latent_position=random.choice([2, 4]),
+            latent_position=random.choice([1, 3]),  # z2 or z4
             layer_percent=50,
             question=question,
             answer=result,

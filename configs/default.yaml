@@ -15,7 +15,7 @@ model:
   # Activation Oracle
   ao_base_model: "meta-llama/Llama-3.2-1B-Instruct"
   ao_injection_layer: 1 # Inject after this layer
-  ao_placeholder_token: "?"
+  ao_placeholder_token: " ?"  # Leading space prevents collision with natural punctuation
 
 # =============================================================================
 # LoRA Settings (for AO training)

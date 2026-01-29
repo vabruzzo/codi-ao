@@ -90,8 +90,8 @@ class CODIWrapper:
         )
 
         # Access latent vectors
-        z3 = result.latent_vectors[2]  # Step 1 result (per LessWrong)
-        z5 = result.latent_vectors[4]  # Step 2 result
+        z2 = result.latent_vectors[1]  # Step 1 result
+        z4 = result.latent_vectors[3]  # Step 2 result
     """
 
     def __init__(
@@ -485,54 +485,57 @@ class CODIWrapper:
         verbose: bool = True,
     ) -> dict:
         """
-        Verify that z3 and z5 store intermediate results as per LessWrong findings.
+        Verify that z2 and z4 store intermediate results.
+
+        Note: LessWrong refers to "z3/z5" but their indexing includes initial position.
+        Our indices: z2 (index 1) = Step 1, z4 (index 3) = Step 2.
 
         Args:
             prompts: List of dicts with 'prompt', 'step1_result', 'step2_result' keys
             verbose: Whether to print progress
 
         Returns:
-            Dict with accuracy metrics for z3 and z5
+            Dict with accuracy metrics for z2 and z4
         """
-        z3_correct = 0
-        z5_correct = 0
+        z2_correct = 0
+        z4_correct = 0
         total = 0
 
         for item in prompts:
             result = self.collect_latents(item["prompt"])
 
-            if len(result.latent_vectors) < 5:
+            if len(result.latent_vectors) < 4:
                 continue
 
-            # Check z3 (index 2) for step 1 result
-            z3_lens = self.logit_lens(result.latent_vectors[2])
-            z3_top1, z3_prob = z3_lens.get_top1_at_final_layer()
+            # Check z2 (index 1) for step 1 result
+            z2_lens = self.logit_lens(result.latent_vectors[1])
+            z2_top1, z2_prob = z2_lens.get_top1_at_final_layer()
 
-            # Check z5 (index 4) for step 2 result
-            z5_lens = self.logit_lens(result.latent_vectors[4])
-            z5_top1, z5_prob = z5_lens.get_top1_at_final_layer()
+            # Check z4 (index 3) for step 2 result
+            z4_lens = self.logit_lens(result.latent_vectors[3])
+            z4_top1, z4_prob = z4_lens.get_top1_at_final_layer()
 
             step1_result = str(item.get("step1_result", ""))
             step2_result = str(item.get("step2_result", ""))
 
-            if z3_top1 and step1_result in z3_top1:
-                z3_correct += 1
+            if z2_top1 and step1_result in z2_top1:
+                z2_correct += 1
 
-            if z5_top1 and step2_result in z5_top1:
-                z5_correct += 1
+            if z4_top1 and step2_result in z4_top1:
+                z4_correct += 1
 
             total += 1
 
             if verbose and total % 10 == 0:
                 print(
                     f"Processed {total}/{len(prompts)}, "
-                    f"z3 acc: {z3_correct / total:.2%}, "
-                    f"z5 acc: {z5_correct / total:.2%}"
+                    f"z2 acc: {z2_correct / total:.2%}, "
+                    f"z4 acc: {z4_correct / total:.2%}"
                 )
 
         return {
-            "z3_accuracy": z3_correct / total if total > 0 else 0,
-            "z5_accuracy": z5_correct / total if total > 0 else 0,
+            "z2_accuracy": z2_correct / total if total > 0 else 0,
+            "z4_accuracy": z4_correct / total if total > 0 else 0,
             "total": total,
         }
 

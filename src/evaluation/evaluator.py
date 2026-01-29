@@ -2,7 +2,7 @@
 Evaluation harness for CODI Activation Oracle.
 
 Supports evaluation of:
-1. Intermediate result extraction (z3, z5)
+1. Intermediate result extraction (z2, z4)
 2. Operation classification
 3. Comparison with baselines (logit lens, linear probe)
 """
@@ -63,10 +63,10 @@ class EvaluationSummary:
     linear_probe_correct: int = 0
     
     # Per-position metrics
-    z3_ao_accuracy: float = 0.0
-    z5_ao_accuracy: float = 0.0
-    z3_logit_lens_accuracy: float = 0.0
-    z5_logit_lens_accuracy: float = 0.0
+    z2_ao_accuracy: float = 0.0
+    z4_ao_accuracy: float = 0.0
+    z2_logit_lens_accuracy: float = 0.0
+    z4_logit_lens_accuracy: float = 0.0
     
     # Detailed results
     results: list[EvaluationResult] = field(default_factory=list)
@@ -115,14 +115,14 @@ class CODIAOEvaluator:
         
         # Position to step mapping
         self.position_to_step = {
-            2: 0,  # z3 → first intermediate result
-            4: 1,  # z5 → second intermediate result
+            1: 0,  # z2 → first intermediate result
+            3: 1,  # z4 → second intermediate result
         }
     
     def evaluate_intermediate_results(
         self,
         test_prompts: list[dict],
-        positions: list[int] = [2, 4],
+        positions: list[int] = [1, 3],
         verbose: bool = True,
     ) -> EvaluationSummary:
         """
@@ -130,7 +130,7 @@ class CODIAOEvaluator:
         
         Args:
             test_prompts: List of dicts with 'prompt' and step results
-            positions: Latent positions to evaluate (default: z3 and z5)
+            positions: Latent positions to evaluate (default: z2 and z4)
             verbose: Show progress
         
         Returns:
@@ -139,10 +139,10 @@ class CODIAOEvaluator:
         results = []
         
         # Counters
-        ao_correct = {"total": 0, 2: 0, 4: 0}
-        ll_correct = {"total": 0, 2: 0, 4: 0}
-        lp_correct = {"total": 0, 2: 0, 4: 0}
-        totals = {"total": 0, 2: 0, 4: 0}
+        ao_correct = {"total": 0, 1: 0, 3: 0}
+        ll_correct = {"total": 0, 1: 0, 3: 0}
+        lp_correct = {"total": 0, 1: 0, 3: 0}
+        totals = {"total": 0, 1: 0, 3: 0}
         
         iterator = tqdm(test_prompts, desc="Evaluating", disable=not verbose)
         
@@ -237,10 +237,10 @@ class CODIAOEvaluator:
             logit_lens_correct=ll_correct["total"],
             linear_probe_accuracy=lp_correct["total"] / totals["total"] if totals["total"] > 0 else 0,
             linear_probe_correct=lp_correct["total"],
-            z3_ao_accuracy=ao_correct[2] / totals[2] if totals[2] > 0 else 0,
-            z5_ao_accuracy=ao_correct[4] / totals[4] if totals[4] > 0 else 0,
-            z3_logit_lens_accuracy=ll_correct[2] / totals[2] if totals[2] > 0 else 0,
-            z5_logit_lens_accuracy=ll_correct[4] / totals[4] if totals[4] > 0 else 0,
+            z2_ao_accuracy=ao_correct[1] / totals[1] if totals[1] > 0 else 0,
+            z4_ao_accuracy=ao_correct[3] / totals[3] if totals[3] > 0 else 0,
+            z2_logit_lens_accuracy=ll_correct[1] / totals[1] if totals[1] > 0 else 0,
+            z4_logit_lens_accuracy=ll_correct[3] / totals[3] if totals[3] > 0 else 0,
             results=results,
         )
         
@@ -358,11 +358,11 @@ class CODIAOEvaluator:
             print(f"  Linear Probe: {summary.linear_probe_accuracy:.2%} ({summary.linear_probe_correct}/{summary.total_examples})")
         print()
         print("By Position:")
-        print(f"  z3 Logit Lens: {summary.z3_logit_lens_accuracy:.2%}")
-        print(f"  z5 Logit Lens: {summary.z5_logit_lens_accuracy:.2%}")
-        if summary.z3_ao_accuracy > 0 or summary.z5_ao_accuracy > 0:
-            print(f"  z3 AO:         {summary.z3_ao_accuracy:.2%}")
-            print(f"  z5 AO:         {summary.z5_ao_accuracy:.2%}")
+        print(f"  z2 Logit Lens: {summary.z2_logit_lens_accuracy:.2%}")
+        print(f"  z4 Logit Lens: {summary.z4_logit_lens_accuracy:.2%}")
+        if summary.z2_ao_accuracy > 0 or summary.z4_ao_accuracy > 0:
+            print(f"  z2 AO:         {summary.z2_ao_accuracy:.2%}")
+            print(f"  z4 AO:         {summary.z4_ao_accuracy:.2%}")
         print("=" * 60)
 
 
@@ -391,7 +391,7 @@ def run_mvp_evaluation(
     
     return evaluator.evaluate_intermediate_results(
         test_prompts=test_prompts,
-        positions=[2, 4],
+        positions=[1, 3],  # z2 and z4
         verbose=verbose,
     )
 
