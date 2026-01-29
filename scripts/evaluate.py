@@ -271,7 +271,9 @@ def main():
         print(f"  Overall:    {ml['overall']['accuracy']:.2%} ({ml['overall']['correct']}/{ml['overall']['total']})")
         print(f"  Step 1:     {ml['step1']['accuracy']:.2%}")
         print(f"  Step 2:     {ml['step2']['accuracy']:.2%}")
-        print(f"  Final:      {ml['final']['accuracy']:.2%}")
+        print(f"  Final:      {ml['final']['accuracy']:.2%} (note: final answer not stored in latents)")
+        if "comparison" in ml and ml["comparison"]["total"] > 0:
+            print(f"  Comparison: {ml['comparison']['accuracy']:.2%}")
     
     print("=" * 60)
 

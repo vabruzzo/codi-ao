@@ -402,6 +402,7 @@ class CODIAOEvaluator:
             "step1": {"correct": 0, "total": 0},
             "step2": {"correct": 0, "total": 0},
             "final": {"correct": 0, "total": 0},
+            "comparison": {"correct": 0, "total": 0},
             "overall": {"correct": 0, "total": 0},
         }
         examples = []  # Track individual examples
@@ -417,12 +418,34 @@ class CODIAOEvaluator:
             
             all_latents = [v for v in codi_result.latent_vectors[:6]]
             
-            # Test different question types
+            # Get step values for comparison questions
+            step1 = item.get("step1_result")
+            step2 = item.get("step2_result")
+            
+            # Build test cases
             test_cases = [
                 ("What was calculated in the first step?", str(item.get("step1_result", "")), "step1"),
                 ("What was the result of the second calculation?", str(item.get("step2_result", "")), "step2"),
                 ("What is the final answer?", str(item.get("final_answer", "")), "final"),
             ]
+            
+            # Add comparison questions if we have both step values
+            if step1 is not None and step2 is not None:
+                step1_val = int(step1) if str(step1).isdigit() else float(step1)
+                step2_val = int(step2) if str(step2).isdigit() else float(step2)
+                
+                # "Which step had the larger result?" - answer is "step 1" or "step 2" or "second"/"first"
+                if step2_val > step1_val:
+                    larger_answer = "step 2"
+                elif step1_val > step2_val:
+                    larger_answer = "step 1"
+                else:
+                    larger_answer = "equal"
+                test_cases.append(("Which calculation step produced the larger result?", larger_answer, "comparison"))
+                
+                # "Is step 2 greater than step 1?" - yes/no
+                is_greater = "yes" if step2_val > step1_val else "no"
+                test_cases.append(("Is the second step result greater than the first?", is_greater, "comparison"))
             
             for question, expected, key in test_cases:
                 if not expected:
@@ -434,7 +457,12 @@ class CODIAOEvaluator:
                 )
                 
                 prediction = self.ao.generate(ao_prompt)
-                is_correct = self._check_match(prediction, expected)
+                
+                # Special handling for comparison questions
+                if key == "comparison":
+                    is_correct = self._check_comparison_match(prediction, expected)
+                else:
+                    is_correct = self._check_match(prediction, expected)
                 
                 results[key]["total"] += 1
                 results["overall"]["total"] += 1
@@ -463,9 +491,10 @@ class CODIAOEvaluator:
         if verbose:
             print(f"\nMulti-Latent QA Accuracy: {results['overall']['accuracy']:.2%} ({results['overall']['correct']}/{results['overall']['total']})")
             print("\nBy question type:")
-            for key in ["step1", "step2", "final"]:
+            for key in ["step1", "step2", "final", "comparison"]:
                 r = results[key]
-                print(f"  {key}: {r['accuracy']:.2%} ({r['correct']}/{r['total']})")
+                if r["total"] > 0:
+                    print(f"  {key}: {r['accuracy']:.2%} ({r['correct']}/{r['total']})")
             
             # Print examples
             print("\n" + "-" * 60)
@@ -502,6 +531,39 @@ class CODIAOEvaluator:
         
         # String comparison (only if both non-empty)
         return pred == gt or (len(pred) > 0 and pred in gt) or (len(gt) > 0 and gt in pred)
+    
+    def _check_comparison_match(self, prediction: str, ground_truth: str) -> bool:
+        """Check if comparison prediction matches ground truth.
+        
+        Handles variations like:
+        - "step 2" / "step2" / "second" / "2"
+        - "step 1" / "step1" / "first" / "1"
+        - "yes" / "no"
+        """
+        pred = prediction.strip().lower()
+        gt = ground_truth.strip().lower()
+        
+        if not pred:
+            return False
+        
+        # Yes/No questions
+        if gt in ["yes", "no"]:
+            if gt == "yes":
+                return "yes" in pred and "no" not in pred
+            else:
+                return "no" in pred and "yes" not in pred
+        
+        # "step 1" / "step 2" questions
+        if gt == "step 1":
+            return any(x in pred for x in ["step 1", "step1", "first", "1st"]) and \
+                   not any(x in pred for x in ["step 2", "step2", "second", "2nd"])
+        elif gt == "step 2":
+            return any(x in pred for x in ["step 2", "step2", "second", "2nd"]) and \
+                   not any(x in pred for x in ["step 1", "step1", "first", "1st"])
+        elif gt == "equal":
+            return any(x in pred for x in ["equal", "same", "both"])
+        
+        return pred == gt
     
     def _print_summary(self, summary: EvaluationSummary):
         """Print evaluation summary."""
