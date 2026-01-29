@@ -341,10 +341,22 @@ def main():
     eocot_first_position = Counter()  # Which z position first shows eocot
     correct_vs_incorrect = {"correct": [], "incorrect": []}
     
-    # Three types of "answer in latent" tracking
+    # Three types of "answer in latent" tracking (for CORRECT answer)
     answer_letter_in_latent = Counter()   # Exact letter match (A, B, C, D, E)
     answer_concept_in_latent = Counter()  # Concept match (the choice text)
     answer_combined_in_latent = Counter() # Either letter OR concept
+    
+    # NEW: Track if model's PREDICTED output appears in latent (regardless of correctness)
+    # This tells us: can we read what the model will commit to?
+    predicted_in_latent = Counter()       # Position where predicted letter first appears
+    z2_top1_matches_output = 0            # z2's top-1 token matches model's output
+    z3_top1_matches_output = 0            # z3's top-1 token matches model's output
+    
+    # Cross-tabulation: latent prediction vs correctness
+    z2_matches_and_correct = 0
+    z2_matches_and_incorrect = 0
+    z2_no_match_and_correct = 0
+    z2_no_match_and_incorrect = 0
 
     print(f"\nAnalyzing {len(examples)} examples...")
     print("-" * 70)
@@ -456,6 +468,47 @@ def main():
         example_data["letter_found_in"] = letter_found_in_z
         example_data["concept_found_in"] = concept_found_in_z
         example_data["combined_found_in"] = combined_found_in_z
+        
+        # NEW: Check if model's PREDICTED output appears in latents
+        # This measures: can we read what the model will commit to?
+        if predicted and len(example_data["latents"]) >= 3:
+            z2_data = example_data["latents"][1]  # z2
+            z3_data = example_data["latents"][2]  # z3
+            
+            # Check z2 top-1
+            z2_top1 = z2_data["top1"].strip()
+            z2_matches = z2_top1 == predicted or z2_top1 in [f"{predicted}.", f"{predicted}:", f"{predicted})"]
+            if z2_matches:
+                z2_top1_matches_output += 1
+                if is_correct:
+                    z2_matches_and_correct += 1
+                else:
+                    z2_matches_and_incorrect += 1
+            else:
+                if is_correct:
+                    z2_no_match_and_correct += 1
+                else:
+                    z2_no_match_and_incorrect += 1
+            
+            # Check z3 top-1
+            z3_top1 = z3_data["top1"].strip()
+            if z3_top1 == predicted or z3_top1 in [f"{predicted}.", f"{predicted}:", f"{predicted})"]:
+                z3_top1_matches_output += 1
+            
+            # Check if predicted letter appears anywhere in z2/z3 top-5
+            predicted_found = None
+            for z_idx, z_data in [(1, z2_data), (2, z3_data)]:
+                for tok, prob in z_data["top5"]:
+                    tok_clean = tok.strip()
+                    if tok_clean == predicted or tok_clean in [f"{predicted}.", f"{predicted}:", f"{predicted})"]:
+                        if predicted_found is None:
+                            predicted_found = f"z{z_idx + 1}"
+                            predicted_in_latent[predicted_found] += 1
+                        break
+                if predicted_found:
+                    break
+            
+            example_data["predicted_found_in"] = predicted_found
 
         # Track eocot position
         if first_eocot_pos:
@@ -529,6 +582,45 @@ def main():
         count = answer_combined_in_latent[z_name]
         pct = count / n_total * 100
         print(f"      {z_name}: {count} ({pct:.1f}%)")
+    
+    # NEW SECTION: Can Logit Lens predict what the model will OUTPUT?
+    print("\n" + "=" * 70)
+    print("KEY METRIC: Can Logit Lens predict model's output?")
+    print("=" * 70)
+    print("(This measures interpretability: can we read the model's decision from latents?)")
+    
+    total_predicted = sum(predicted_in_latent.values())
+    print(f"\n   Model's PREDICTED letter found in z2/z3 top-5: {total_predicted}/{n_total} ({total_predicted/n_total*100:.1f}%)")
+    print(f"   z2 top-1 matches model output: {z2_top1_matches_output}/{n_total} ({z2_top1_matches_output/n_total*100:.1f}%)")
+    print(f"   z3 top-1 matches model output: {z3_top1_matches_output}/{n_total} ({z3_top1_matches_output/n_total*100:.1f}%)")
+    
+    print("\n   By position (where predicted letter first appears):")
+    for z_name in ["z2", "z3"]:
+        count = predicted_in_latent[z_name]
+        pct = count / n_total * 100
+        print(f"      {z_name}: {count} ({pct:.1f}%)")
+    
+    print(f"\n   Cross-tabulation (z2 top-1 prediction vs correctness):")
+    print(f"      z2 matches output AND correct:   {z2_matches_and_correct:3d} ({z2_matches_and_correct/n_total*100:5.1f}%)")
+    print(f"      z2 matches output AND incorrect: {z2_matches_and_incorrect:3d} ({z2_matches_and_incorrect/n_total*100:5.1f}%)")
+    print(f"      z2 no match AND correct:         {z2_no_match_and_correct:3d} ({z2_no_match_and_correct/n_total*100:5.1f}%)")
+    print(f"      z2 no match AND incorrect:       {z2_no_match_and_incorrect:3d} ({z2_no_match_and_incorrect/n_total*100:5.1f}%)")
+    
+    # Calculate conditional probabilities
+    if z2_top1_matches_output > 0:
+        p_correct_given_match = z2_matches_and_correct / z2_top1_matches_output * 100
+    else:
+        p_correct_given_match = 0
+    no_match_total = z2_no_match_and_correct + z2_no_match_and_incorrect
+    if no_match_total > 0:
+        p_correct_given_no_match = z2_no_match_and_correct / no_match_total * 100
+    else:
+        p_correct_given_no_match = 0
+    
+    print(f"\n   Conditional probabilities:")
+    print(f"      P(correct | z2 matches output):     {p_correct_given_match:.1f}%")
+    print(f"      P(correct | z2 doesn't match):      {p_correct_given_no_match:.1f}%")
+    print(f"      (baseline accuracy: {n_correct/n_total*100:.1f}%)")
 
     # 5. Correct vs Incorrect patterns
     print("\n5. Correct vs Incorrect Predictions:")
@@ -579,6 +671,21 @@ def main():
                 "by_position": dict(answer_combined_in_latent),
             },
         },
+        "predicted_in_latent": {
+            "total": total_predicted,
+            "total_pct": total_predicted / n_total,
+            "z2_top1_matches": z2_top1_matches_output,
+            "z3_top1_matches": z3_top1_matches_output,
+            "z2_top1_pct": z2_top1_matches_output / n_total,
+            "z3_top1_pct": z3_top1_matches_output / n_total,
+            "by_position": dict(predicted_in_latent),
+            "cross_tab": {
+                "z2_matches_and_correct": z2_matches_and_correct,
+                "z2_matches_and_incorrect": z2_matches_and_incorrect,
+                "z2_no_match_and_correct": z2_no_match_and_correct,
+                "z2_no_match_and_incorrect": z2_no_match_and_incorrect,
+            },
+        },
     }
     
     with open(output_path, "w") as f:
@@ -604,13 +711,14 @@ Compare these findings to math (from LessWrong):
 - Math: z2 encodes Step 1 result (100%), z4 encodes Step 2 result (85%)
 - Math: <|eocot|> typically appears in z5/z6 (uses 4-5 latent steps)
 
-This analysis shows:
-- Letter in latent:  {total_letter}/{n_total} ({total_letter/n_total*100:.1f}%)
-- Concept in latent: {total_concept}/{n_total} ({total_concept/n_total*100:.1f}%)  
-- Combined:          {total_combined}/{n_total} ({total_combined/n_total*100:.1f}%)
+INTERPRETABILITY (can we read what model will output?):
+- z2 top-1 predicts output: {z2_top1_matches_output/n_total*100:.1f}%
+- z3 top-1 predicts output: {z3_top1_matches_output/n_total*100:.1f}%
+- Predicted in z2/z3 top-5: {total_predicted/n_total*100:.1f}%
 
-The gap between letter and combined shows how often the model encodes
-the answer CONCEPT without the letter itself.
+CORRECT answer encoding:
+- Correct letter in latent: {total_letter}/{n_total} ({total_letter/n_total*100:.1f}%)
+- Correct concept in latent: {total_concept}/{n_total} ({total_concept/n_total*100:.1f}%)
 """)
 
 
