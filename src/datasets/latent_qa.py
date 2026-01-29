@@ -61,8 +61,16 @@ class LatentQAExample:
         return cls(**d)
 
 
-# Question templates for different query types
-INTERMEDIATE_RESULT_TEMPLATES = [
+# =============================================================================
+# QUESTION TEMPLATES - Organized by Type for Phase 3 Diverse Training
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. EXTRACTION QUESTIONS (Single-latent) - What value is stored?
+# -----------------------------------------------------------------------------
+
+# Generic extraction (no position info - original style)
+EXTRACTION_GENERIC = [
     "What is the intermediate calculation result?",
     "What number is computed at this step?",
     "What value is stored in this reasoning position?",
@@ -78,59 +86,160 @@ INTERMEDIATE_RESULT_TEMPLATES = [
     "What is stored as the intermediate result?",
     "What numerical value is represented here?",
     "What is the output of this calculation step?",
-    "What intermediate answer is stored?",
-    "What is the result value at this step?",
-    "What number is the result of this computation?",
-    "What value was calculated here?",
-    "What is the numeric result stored in this position?",
 ]
+
+# Position-aware extraction for Step 1 (z2)
+EXTRACTION_STEP1 = [
+    "What is the first intermediate result?",
+    "What was calculated in step 1?",
+    "What is the step 1 result?",
+    "What number was computed first?",
+    "What is the first calculation's output?",
+    "What value did the first step produce?",
+    "What is stored from the first computation?",
+    "What result came from step one?",
+]
+
+# Position-aware extraction for Step 2 (z4)
+EXTRACTION_STEP2 = [
+    "What is the second intermediate result?",
+    "What was calculated in step 2?",
+    "What is the step 2 result?",
+    "What number was computed second?",
+    "What is the second calculation's output?",
+    "What value did the second step produce?",
+    "What is stored from the second computation?",
+    "What result came from step two?",
+]
+
+# Combine all extraction templates
+INTERMEDIATE_RESULT_TEMPLATES = EXTRACTION_GENERIC  # Backward compatibility
+
+# -----------------------------------------------------------------------------
+# 2. CLASSIFICATION QUESTIONS (Yes/No) - Properties of the latent
+# -----------------------------------------------------------------------------
+
+# Magnitude classification
+CLASSIFICATION_MAGNITUDE = {
+    "greater_than_10": [
+        "Is the result greater than 10?",
+        "Is this value more than 10?",
+        "Does this computation produce a result above 10?",
+    ],
+    "greater_than_50": [
+        "Is the result greater than 50?",
+        "Is this value more than 50?",
+        "Does this step produce a number above 50?",
+    ],
+    "greater_than_100": [
+        "Is the result greater than 100?",
+        "Is this value more than 100?",
+        "Is the computed value above 100?",
+    ],
+    "less_than_10": [
+        "Is the result less than 10?",
+        "Is this value below 10?",
+        "Does this produce a single digit result?",
+    ],
+    "is_positive": [
+        "Is the result positive?",
+        "Is this a positive number?",
+        "Is the computed value greater than zero?",
+    ],
+    "is_negative": [
+        "Is the result negative?",
+        "Is this a negative number?",
+        "Is the value below zero?",
+    ],
+}
+
+# Operation classification
+CLASSIFICATION_OPERATION = {
+    "is_addition": [
+        "Was addition used in this step?",
+        "Is this an addition operation?",
+        "Did this step involve adding?",
+    ],
+    "is_subtraction": [
+        "Was subtraction used in this step?",
+        "Is this a subtraction operation?",
+        "Did this step involve subtracting?",
+    ],
+    "is_multiplication": [
+        "Was multiplication used in this step?",
+        "Is this a multiplication operation?",
+        "Did this step involve multiplying?",
+    ],
+}
+
+# Position classification
+CLASSIFICATION_POSITION = {
+    "is_first_step": [
+        "Is this the first calculation step?",
+        "Is this step 1?",
+        "Is this one of the first calculation steps?",
+    ],
+    "is_second_step": [
+        "Is this the second calculation step?",
+        "Is this step 2?",
+        "Is this the second computation?",
+    ],
+}
+
+# Structure classification
+CLASSIFICATION_STRUCTURE = [
+    "Is this a computational step?",
+    "Does this step perform a calculation?",
+    "Is this an actual computation?",
+    "Is meaningful work done in this step?",
+]
+
+# -----------------------------------------------------------------------------
+# 3. OPERATION TYPE QUESTIONS - What operation was performed?
+# -----------------------------------------------------------------------------
 
 OPERATION_TYPE_TEMPLATES = [
     "What mathematical operation was performed?",
     "What type of calculation was done?",
-    "Is this an addition, subtraction, multiplication, or division?",
     "What operation produced this result?",
     "What arithmetic operation was used?",
     "What kind of math operation is this?",
-    "What calculation type was performed?",
-    "Is this step adding, subtracting, multiplying, or dividing?",
-    "What mathematical process was applied?",
-    "What operation was computed here?",
+    "Was this addition, subtraction, or multiplication?",
 ]
 
-STRUCTURE_TEMPLATES = [
-    "Is this a transitional step or a calculation step?",
-    "Does this step perform a meaningful calculation?",
-    "Is this an intermediate computation or a placeholder?",
-    "Is this step storing a calculation result?",
-    "Does this represent an actual computation?",
-]
+# -----------------------------------------------------------------------------
+# 4. MULTI-LATENT QUESTIONS - Require all 6 latent vectors
+# -----------------------------------------------------------------------------
 
-# Multi-latent templates (for all 6 vectors)
-MULTI_LATENT_TEMPLATES = [
-    # Full reasoning description
-    "Describe the full reasoning process.",
-    "Summarize all the calculation steps.",
-    "What is the complete chain of reasoning?",
-    "Explain the reasoning from start to finish.",
-    "What calculations were performed in sequence?",
-    
-    # Specific step queries (with all context)
+# Step extraction with full context
+MULTI_LATENT_EXTRACTION = [
     "What was calculated in the first step?",
     "What was the result of the second calculation?",
-    "What is the final computation?",
     "What intermediate results were computed?",
-    
-    # Verification queries
-    "Are all the calculation steps correct?",
-    "Is there an error in the reasoning?",
-    "Do the intermediate steps lead to the correct answer?",
-    "Is the reasoning chain valid?",
-    
-    # Summary queries
-    "What is the answer and how was it derived?",
-    "Summarize: what numbers were computed at each step?",
+    "What is stored in the first reasoning position?",
+    "What is stored in the second reasoning position?",
 ]
+
+# Comparison questions
+MULTI_LATENT_COMPARISON = [
+    "Which calculation step produced the larger result?",
+    "Is the second step result greater than the first?",
+    "Which step has the smaller value?",
+    "Is step 1's result larger than step 2's?",
+    "Compare the two intermediate results: which is bigger?",
+]
+
+# Relationship questions
+MULTI_LATENT_RELATIONSHIP = [
+    "What is the difference between step 1 and step 2?",
+    "How do the intermediate results relate?",
+    "Is step 2 a multiple of step 1?",
+]
+
+# Legacy multi-latent templates (backward compatibility)
+MULTI_LATENT_TEMPLATES = MULTI_LATENT_EXTRACTION + MULTI_LATENT_COMPARISON
+
+STRUCTURE_TEMPLATES = CLASSIFICATION_STRUCTURE  # Backward compatibility
 
 
 def extract_operation(step: str) -> str:
@@ -422,6 +531,480 @@ def create_synthetic_examples(
     return examples
 
 
+# =============================================================================
+# PHASE 3: Diverse Training Data Generator
+# =============================================================================
+
+class Phase3DataGenerator:
+    """
+    Comprehensive data generator for Phase 3 training.
+    
+    Generates diverse question types:
+    1. Extraction (generic and position-aware)
+    2. Classification (magnitude, operation, position, structure)
+    3. Comparison (multi-latent)
+    4. Operation identification
+    
+    Target: 100K+ diverse examples from real CODI latents.
+    """
+    
+    def __init__(
+        self,
+        codi_wrapper: Optional["CODIWrapper"] = None,
+        placeholder_token: Optional[str] = None,
+    ):
+        from ..activation_oracle import DEFAULT_PLACEHOLDER_TOKEN, format_oracle_prompt
+        
+        self.codi_wrapper = codi_wrapper
+        self.placeholder_token = placeholder_token or DEFAULT_PLACEHOLDER_TOKEN
+        self.format_oracle_prompt = format_oracle_prompt
+        
+        # Question type weights (controls distribution)
+        self.question_weights = {
+            "extraction_generic": 0.15,
+            "extraction_position": 0.15,
+            "classification_magnitude": 0.20,
+            "classification_operation": 0.10,
+            "classification_position": 0.10,
+            "classification_structure": 0.05,
+            "operation_type": 0.10,
+            "multi_latent_extraction": 0.05,
+            "multi_latent_comparison": 0.10,
+        }
+    
+    def generate_diverse_examples(
+        self,
+        prompts: list[dict],
+        target_count: int = 100000,
+        verbose: bool = True,
+    ) -> list[LatentQAExample]:
+        """
+        Generate diverse training examples from prompts.
+        
+        Args:
+            prompts: List of dicts with 'prompt', 'step1_result', 'step2_result', etc.
+            target_count: Target number of examples to generate
+            verbose: Show progress
+        
+        Returns:
+            List of diverse LatentQAExample objects
+        """
+        if self.codi_wrapper is None:
+            raise ValueError("CODI wrapper required for real latent collection")
+        
+        examples = []
+        examples_per_prompt = max(1, target_count // len(prompts))
+        
+        iterator = tqdm(prompts, desc="Generating Phase 3 data") if verbose else prompts
+        
+        for item in iterator:
+            prompt = item["prompt"]
+            
+            # Collect latent vectors
+            try:
+                result = self.codi_wrapper.collect_latents(prompt)
+            except Exception:
+                continue
+            
+            if len(result.latent_vectors) < 6:
+                continue
+            
+            # Extract ground truth values
+            step1_result = str(item.get("step1_result", ""))
+            step2_result = str(item.get("step2_result", ""))
+            final_answer = str(item.get("final_answer", ""))
+            op_type = item.get("type", "addition")  # "addition" or "subtraction"
+            
+            # Get latent vectors
+            z2_vec = result.latent_vectors[1]  # Step 1
+            z4_vec = result.latent_vectors[3]  # Step 2
+            all_vecs = [v for v in result.latent_vectors[:6]]
+            
+            # Generate diverse examples for this prompt
+            prompt_examples = []
+            
+            # 1. EXTRACTION - Generic (single latent)
+            if step1_result:
+                prompt_examples.extend(self._generate_extraction_examples(
+                    z2_vec, step1_result, 1, prompt, "generic", examples_per_prompt // 10
+                ))
+            if step2_result:
+                prompt_examples.extend(self._generate_extraction_examples(
+                    z4_vec, step2_result, 3, prompt, "generic", examples_per_prompt // 10
+                ))
+            
+            # 2. EXTRACTION - Position-aware (single latent)
+            if step1_result:
+                prompt_examples.extend(self._generate_extraction_examples(
+                    z2_vec, step1_result, 1, prompt, "step1", examples_per_prompt // 10
+                ))
+            if step2_result:
+                prompt_examples.extend(self._generate_extraction_examples(
+                    z4_vec, step2_result, 3, prompt, "step2", examples_per_prompt // 10
+                ))
+            
+            # 3. CLASSIFICATION - Magnitude
+            if step1_result:
+                prompt_examples.extend(self._generate_magnitude_examples(
+                    z2_vec, step1_result, 1, prompt, examples_per_prompt // 10
+                ))
+            if step2_result:
+                prompt_examples.extend(self._generate_magnitude_examples(
+                    z4_vec, step2_result, 3, prompt, examples_per_prompt // 10
+                ))
+            
+            # 4. CLASSIFICATION - Operation
+            prompt_examples.extend(self._generate_operation_class_examples(
+                z2_vec, op_type, 1, prompt, examples_per_prompt // 10
+            ))
+            prompt_examples.extend(self._generate_operation_class_examples(
+                z4_vec, "multiplication", 3, prompt, examples_per_prompt // 10  # Step 2 is always multiplication
+            ))
+            
+            # 5. CLASSIFICATION - Position
+            prompt_examples.extend(self._generate_position_examples(
+                z2_vec, 1, prompt, examples_per_prompt // 10
+            ))
+            prompt_examples.extend(self._generate_position_examples(
+                z4_vec, 3, prompt, examples_per_prompt // 10
+            ))
+            
+            # 6. CLASSIFICATION - Structure
+            prompt_examples.extend(self._generate_structure_examples(
+                z2_vec, 1, prompt, examples_per_prompt // 20
+            ))
+            prompt_examples.extend(self._generate_structure_examples(
+                z4_vec, 3, prompt, examples_per_prompt // 20
+            ))
+            
+            # 7. OPERATION TYPE
+            prompt_examples.extend(self._generate_operation_type_examples(
+                z2_vec, op_type, 1, prompt, examples_per_prompt // 10
+            ))
+            
+            # 8. MULTI-LATENT - Extraction
+            if step1_result and step2_result:
+                prompt_examples.extend(self._generate_multi_extraction_examples(
+                    all_vecs, step1_result, step2_result, prompt, examples_per_prompt // 10
+                ))
+            
+            # 9. MULTI-LATENT - Comparison
+            if step1_result and step2_result:
+                prompt_examples.extend(self._generate_comparison_examples(
+                    all_vecs, step1_result, step2_result, prompt, examples_per_prompt // 10
+                ))
+            
+            examples.extend(prompt_examples)
+            
+            # Check if we've reached target
+            if len(examples) >= target_count:
+                break
+        
+        # Shuffle and trim to target
+        random.shuffle(examples)
+        return examples[:target_count]
+    
+    def _generate_extraction_examples(
+        self, latent_vec, result, position, source_prompt, extraction_type, count
+    ) -> list[LatentQAExample]:
+        """Generate extraction question examples."""
+        examples = []
+        
+        if extraction_type == "generic":
+            templates = EXTRACTION_GENERIC
+        elif extraction_type == "step1":
+            templates = EXTRACTION_STEP1
+        elif extraction_type == "step2":
+            templates = EXTRACTION_STEP2
+        else:
+            templates = EXTRACTION_GENERIC
+        
+        for _ in range(count):
+            question = random.choice(templates)
+            oracle_prompt = self.format_oracle_prompt(
+                question=question,
+                num_activations=1,
+                placeholder_token=self.placeholder_token,
+            )
+            
+            examples.append(LatentQAExample(
+                prompt=oracle_prompt,
+                latent_vectors=[latent_vec.tolist()],
+                latent_positions=[position],
+                question=question,
+                answer=result,
+                source_prompt=source_prompt,
+                question_type=f"extraction_{extraction_type}",
+            ))
+        
+        return examples
+    
+    def _generate_magnitude_examples(
+        self, latent_vec, result, position, source_prompt, count
+    ) -> list[LatentQAExample]:
+        """Generate magnitude classification examples."""
+        examples = []
+        
+        try:
+            value = float(result)
+        except ValueError:
+            return examples
+        
+        magnitude_checks = [
+            ("greater_than_10", value > 10),
+            ("greater_than_50", value > 50),
+            ("greater_than_100", value > 100),
+            ("less_than_10", value < 10),
+            ("is_positive", value > 0),
+        ]
+        
+        for _ in range(count):
+            check_type, is_true = random.choice(magnitude_checks)
+            question = random.choice(CLASSIFICATION_MAGNITUDE[check_type])
+            answer = "Yes" if is_true else "No"
+            
+            oracle_prompt = self.format_oracle_prompt(
+                question=question,
+                num_activations=1,
+                placeholder_token=self.placeholder_token,
+            )
+            
+            examples.append(LatentQAExample(
+                prompt=oracle_prompt,
+                latent_vectors=[latent_vec.tolist()],
+                latent_positions=[position],
+                question=question,
+                answer=answer,
+                source_prompt=source_prompt,
+                question_type="classification_magnitude",
+            ))
+        
+        return examples
+    
+    def _generate_operation_class_examples(
+        self, latent_vec, actual_op, position, source_prompt, count
+    ) -> list[LatentQAExample]:
+        """Generate operation classification examples."""
+        examples = []
+        
+        op_checks = [
+            ("is_addition", actual_op == "addition"),
+            ("is_subtraction", actual_op == "subtraction"),
+            ("is_multiplication", actual_op == "multiplication"),
+        ]
+        
+        for _ in range(count):
+            check_type, is_true = random.choice(op_checks)
+            question = random.choice(CLASSIFICATION_OPERATION[check_type])
+            answer = "Yes" if is_true else "No"
+            
+            oracle_prompt = self.format_oracle_prompt(
+                question=question,
+                num_activations=1,
+                placeholder_token=self.placeholder_token,
+            )
+            
+            examples.append(LatentQAExample(
+                prompt=oracle_prompt,
+                latent_vectors=[latent_vec.tolist()],
+                latent_positions=[position],
+                question=question,
+                answer=answer,
+                source_prompt=source_prompt,
+                question_type="classification_operation",
+            ))
+        
+        return examples
+    
+    def _generate_position_examples(
+        self, latent_vec, position, source_prompt, count
+    ) -> list[LatentQAExample]:
+        """Generate position classification examples."""
+        examples = []
+        
+        is_step1 = position == 1
+        is_step2 = position == 3
+        
+        pos_checks = [
+            ("is_first_step", is_step1),
+            ("is_second_step", is_step2),
+        ]
+        
+        for _ in range(count):
+            check_type, is_true = random.choice(pos_checks)
+            question = random.choice(CLASSIFICATION_POSITION[check_type])
+            answer = "Yes" if is_true else "No"
+            
+            oracle_prompt = self.format_oracle_prompt(
+                question=question,
+                num_activations=1,
+                placeholder_token=self.placeholder_token,
+            )
+            
+            examples.append(LatentQAExample(
+                prompt=oracle_prompt,
+                latent_vectors=[latent_vec.tolist()],
+                latent_positions=[position],
+                question=question,
+                answer=answer,
+                source_prompt=source_prompt,
+                question_type="classification_position",
+            ))
+        
+        return examples
+    
+    def _generate_structure_examples(
+        self, latent_vec, position, source_prompt, count
+    ) -> list[LatentQAExample]:
+        """Generate structure classification examples."""
+        examples = []
+        
+        # z2 and z4 are computation steps
+        is_computation = position in [1, 3]
+        
+        for _ in range(count):
+            question = random.choice(CLASSIFICATION_STRUCTURE)
+            answer = "Yes" if is_computation else "No"
+            
+            oracle_prompt = self.format_oracle_prompt(
+                question=question,
+                num_activations=1,
+                placeholder_token=self.placeholder_token,
+            )
+            
+            examples.append(LatentQAExample(
+                prompt=oracle_prompt,
+                latent_vectors=[latent_vec.tolist()],
+                latent_positions=[position],
+                question=question,
+                answer=answer,
+                source_prompt=source_prompt,
+                question_type="classification_structure",
+            ))
+        
+        return examples
+    
+    def _generate_operation_type_examples(
+        self, latent_vec, operation, position, source_prompt, count
+    ) -> list[LatentQAExample]:
+        """Generate operation type identification examples."""
+        examples = []
+        
+        for _ in range(count):
+            question = random.choice(OPERATION_TYPE_TEMPLATES)
+            
+            oracle_prompt = self.format_oracle_prompt(
+                question=question,
+                num_activations=1,
+                placeholder_token=self.placeholder_token,
+            )
+            
+            examples.append(LatentQAExample(
+                prompt=oracle_prompt,
+                latent_vectors=[latent_vec.tolist()],
+                latent_positions=[position],
+                question=question,
+                answer=operation,
+                source_prompt=source_prompt,
+                question_type="operation_type",
+            ))
+        
+        return examples
+    
+    def _generate_multi_extraction_examples(
+        self, all_vecs, step1_result, step2_result, source_prompt, count
+    ) -> list[LatentQAExample]:
+        """Generate multi-latent extraction examples."""
+        examples = []
+        
+        step_answers = [
+            ("What was calculated in the first step?", step1_result),
+            ("What was the result of the second calculation?", step2_result),
+            ("What is stored in the first reasoning position?", step1_result),
+            ("What is stored in the second reasoning position?", step2_result),
+        ]
+        
+        for _ in range(count):
+            question, answer = random.choice(step_answers)
+            
+            oracle_prompt = self.format_oracle_prompt(
+                question=question,
+                num_activations=6,
+                placeholder_token=self.placeholder_token,
+            )
+            
+            examples.append(LatentQAExample(
+                prompt=oracle_prompt,
+                latent_vectors=[v.tolist() for v in all_vecs],
+                latent_positions=[0, 1, 2, 3, 4, 5],
+                question=question,
+                answer=answer,
+                source_prompt=source_prompt,
+                question_type="multi_latent_extraction",
+                is_multi_latent=True,
+            ))
+        
+        return examples
+    
+    def _generate_comparison_examples(
+        self, all_vecs, step1_result, step2_result, source_prompt, count
+    ) -> list[LatentQAExample]:
+        """Generate multi-latent comparison examples."""
+        examples = []
+        
+        try:
+            v1 = float(step1_result)
+            v2 = float(step2_result)
+        except ValueError:
+            return examples
+        
+        # Determine comparison answers
+        if v2 > v1:
+            larger_step = "step 2"
+            smaller_step = "step 1"
+            step2_greater = "Yes"
+            step1_greater = "No"
+        elif v1 > v2:
+            larger_step = "step 1"
+            smaller_step = "step 2"
+            step2_greater = "No"
+            step1_greater = "Yes"
+        else:
+            larger_step = "equal"
+            smaller_step = "equal"
+            step2_greater = "No"
+            step1_greater = "No"
+        
+        comparison_qa = [
+            ("Which calculation step produced the larger result?", larger_step),
+            ("Which step has the smaller value?", smaller_step),
+            ("Is the second step result greater than the first?", step2_greater),
+            ("Is step 1's result larger than step 2's?", step1_greater),
+        ]
+        
+        for _ in range(count):
+            question, answer = random.choice(comparison_qa)
+            
+            oracle_prompt = self.format_oracle_prompt(
+                question=question,
+                num_activations=6,
+                placeholder_token=self.placeholder_token,
+            )
+            
+            examples.append(LatentQAExample(
+                prompt=oracle_prompt,
+                latent_vectors=[v.tolist() for v in all_vecs],
+                latent_positions=[0, 1, 2, 3, 4, 5],
+                question=question,
+                answer=answer,
+                source_prompt=source_prompt,
+                question_type="multi_latent_comparison",
+                is_multi_latent=True,
+            ))
+        
+        return examples
+
+
 if __name__ == "__main__":
     # Test synthetic generation
     print("Creating synthetic examples...")
@@ -433,5 +1016,5 @@ if __name__ == "__main__":
     print(f"  Prompt: {ex.prompt}")
     print(f"  Question: {ex.question}")
     print(f"  Answer: {ex.answer}")
-    print(f"  Latent position: {ex.latent_position}")
-    print(f"  Vector shape: {len(ex.latent_vector)}")
+    print(f"  Latent positions: {ex.latent_positions}")
+    print(f"  Vector count: {len(ex.latent_vectors)}")
