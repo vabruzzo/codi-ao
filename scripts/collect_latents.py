@@ -35,9 +35,89 @@ def extract_number(s: Optional[str]) -> Optional[str]:
     return match.group() if match else None
 
 
-def create_test_prompts(n: int, seed: int = 42) -> list[dict]:
+def parse_gsm8k_answer(answer: str) -> tuple[list[str], str]:
     """
-    Create test prompts for 3-step math problems with known intermediate results.
+    Parse GSM8k answer to extract intermediate steps and final answer.
+    
+    GSM8k format: "Step text <<expr=result>>... #### final_answer"
+    
+    Returns:
+        (list of intermediate results, final answer)
+    """
+    # Extract intermediate calculations: <<expr=result>>
+    calc_pattern = r"<<[^>]*=\s*([^>]+)>>"
+    intermediate_results = re.findall(calc_pattern, answer)
+    
+    # Clean up results (remove commas, whitespace)
+    intermediate_results = [r.strip().replace(",", "") for r in intermediate_results]
+    
+    # Extract final answer after ####
+    final_match = re.search(r"####\s*(.+)", answer)
+    final_answer = final_match.group(1).strip().replace(",", "") if final_match else ""
+    
+    return intermediate_results, final_answer
+
+
+def load_gsm8k_prompts(n: int, split: str = "test", seed: int = 42) -> list[dict]:
+    """
+    Load prompts from GSM8k dataset.
+    
+    Args:
+        n: Number of prompts to load
+        split: "train" or "test" (use "test" for evaluation)
+        seed: Random seed for sampling
+    
+    Returns:
+        List of prompt dicts with intermediate results
+    """
+    from datasets import load_dataset
+    
+    print(f"Loading GSM8k {split} set...")
+    dataset = load_dataset("gsm8k", "main", split=split)
+    
+    # Sample n examples
+    random.seed(seed)
+    indices = random.sample(range(len(dataset)), min(n, len(dataset)))
+    
+    prompts = []
+    skipped = 0
+    
+    for idx in indices:
+        item = dataset[idx]
+        question = item["question"]
+        answer = item["answer"]
+        
+        intermediate_results, final_answer = parse_gsm8k_answer(answer)
+        
+        # Skip problems with fewer than 2 intermediate steps
+        # (we need at least step1 for z3 and step2 for z5)
+        if len(intermediate_results) < 2:
+            skipped += 1
+            continue
+        
+        # Add instruction suffix (same format CODI was trained on)
+        prompt = f"{question} Give the answer only and nothing else."
+        
+        prompts.append({
+            "prompt": prompt,
+            "question": question,
+            "full_answer": answer,
+            "intermediate_results": intermediate_results,
+            "step1_result": intermediate_results[0] if intermediate_results else None,
+            "step2_result": intermediate_results[1] if len(intermediate_results) > 1 else None,
+            "final_answer": final_answer,
+            "num_steps": len(intermediate_results),
+        })
+    
+    if skipped > 0:
+        print(f"  Skipped {skipped} problems with < 2 intermediate steps")
+    
+    return prompts
+
+
+def create_synthetic_prompts(n: int, seed: int = 42) -> list[dict]:
+    """
+    Create synthetic test prompts (fallback if GSM8k unavailable).
     """
     random.seed(seed)
     
@@ -53,12 +133,6 @@ def create_test_prompts(n: int, seed: int = 42) -> list[dict]:
             "step1": lambda x, y, z: x - y,
             "step2": lambda x, y, z: (x - y) + z,
             "final": lambda x, y, z: (x - y) + z,
-        },
-        {
-            "template": "There are {X} students. {Y} students join a club, and then each club member recruits {Z} more students. How many students are in the club now? Give the answer only and nothing else.",
-            "step1": lambda x, y, z: y,
-            "step2": lambda x, y, z: y * z,
-            "final": lambda x, y, z: y + y * z,
         },
     ]
     
@@ -76,10 +150,9 @@ def create_test_prompts(n: int, seed: int = 42) -> list[dict]:
         
         prompts.append({
             "prompt": prompt,
-            "x": x, "y": y, "z": z,
-            "step1_result": step1,
-            "step2_result": step2,
-            "final_answer": final,
+            "step1_result": str(step1),
+            "step2_result": str(step2),
+            "final_answer": str(final),
         })
     
     return prompts
@@ -170,6 +243,7 @@ def main():
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--synthetic", action="store_true", help="Use synthetic prompts instead of GSM8k")
     args = parser.parse_args()
     
     print("=" * 60)
@@ -180,15 +254,25 @@ def main():
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     
-    # Create test prompts
-    print(f"\nCreating {args.n_samples} test prompts...")
-    test_prompts = create_test_prompts(args.n_samples, seed=args.seed)
+    # Load test prompts
+    if args.synthetic:
+        print(f"\nCreating {args.n_samples} synthetic test prompts...")
+        test_prompts = create_synthetic_prompts(args.n_samples, seed=args.seed)
+    else:
+        print(f"\nLoading {args.n_samples} prompts from GSM8k test set...")
+        try:
+            test_prompts = load_gsm8k_prompts(args.n_samples, split="test", seed=args.seed)
+            print(f"  Loaded {len(test_prompts)} prompts with ≥2 intermediate steps")
+        except Exception as e:
+            print(f"  Failed to load GSM8k: {e}")
+            print("  Falling back to synthetic prompts...")
+            test_prompts = create_synthetic_prompts(args.n_samples, seed=args.seed)
     
     # Save test prompts
     prompts_path = Path("data/test_prompts.json")
     prompts_path.parent.mkdir(parents=True, exist_ok=True)
     with open(prompts_path, "w") as f:
-        json.dump(test_prompts, f, indent=2)
+        json.dump(test_prompts, f, indent=2, default=str)
     print(f"Saved test prompts to {prompts_path}")
     
     # Load CODI
