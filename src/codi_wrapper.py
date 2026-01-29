@@ -164,16 +164,8 @@ class CODIWrapper:
 
     def _setup_special_tokens(self):
         """Ensure tokenizer has required special tokens."""
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-
-        # Add CODI special tokens if not present
-        special_tokens = ["<|bocot|>", "<|eocot|>"]
-        existing = self.tokenizer.additional_special_tokens or []
-        new_tokens = [t for t in special_tokens if t not in existing]
-        if new_tokens:
-            self.tokenizer.add_special_tokens({"additional_special_tokens": existing + new_tokens})
-
+        # Special tokens should already be set up by CODI.from_pretrained()
+        # Just get the token IDs
         self.bocot_id = self.tokenizer.convert_tokens_to_ids("<|bocot|>")
         self.eocot_id = self.tokenizer.convert_tokens_to_ids("<|eocot|>")
 
