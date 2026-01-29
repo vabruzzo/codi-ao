@@ -106,9 +106,18 @@ class CODI(nn.Module):
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         if tokenizer.pad_token_id is None:
-            tokenizer.pad_token = tokenizer.eos_token
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-
+            tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        
+        # Add CODI special tokens
+        special_tokens = ["<|bocot|>", "<|eocot|>"]
+        existing = tokenizer.additional_special_tokens or []
+        new_tokens = [t for t in special_tokens if t not in existing]
+        if new_tokens:
+            tokenizer.add_special_tokens({"additional_special_tokens": existing + new_tokens})
+        
+        # Resize model embeddings to match tokenizer
+        base_model.resize_token_embeddings(len(tokenizer))
+        
         # Apply LoRA
         lora_config = LoraConfig(
             r=lora_r,
