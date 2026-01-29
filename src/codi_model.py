@@ -109,11 +109,9 @@ class CODI(nn.Module):
             tokenizer.add_special_tokens({"pad_token": "[PAD]"})
         
         # Add CODI special tokens
-        special_tokens = ["<|bocot|>", "<|eocot|>"]
-        existing = tokenizer.additional_special_tokens or []
-        new_tokens = [t for t in special_tokens if t not in existing]
-        if new_tokens:
-            tokenizer.add_special_tokens({"additional_special_tokens": existing + new_tokens})
+        tokenizer.add_special_tokens({
+            "additional_special_tokens": ["<|bocot|>", "<|eocot|>"]
+        })
         
         # Resize model embeddings to match tokenizer
         base_model.resize_token_embeddings(len(tokenizer))
