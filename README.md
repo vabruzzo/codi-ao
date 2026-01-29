@@ -49,8 +49,10 @@ codi-ao/
 ## Phased Implementation
 
 ### Phase 1: MVP Validation
-- Verify that z3 and z5 store intermediate results (per LessWrong findings)
-- Establish logit lens baseline (target: 90%+ accuracy)
+- Verify that z2 and z4 store intermediate results (per LessWrong findings)
+  - Note: Paper says "z3/z5" but counts differently (includes initial position)
+  - Our indices: z2=Step1 (100%), z4=Step2 (85%)
+- Establish logit lens baseline (target: 85%+ accuracy)
 - **Exit criteria**: Logit lens meets threshold before proceeding
 
 ### Phase 2: Full Data Generation

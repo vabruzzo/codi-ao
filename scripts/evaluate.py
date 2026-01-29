@@ -47,8 +47,8 @@ def main():
         
         # Generate on the fly
         print("\nGenerating test prompts...")
-        from scripts.collect_latents import create_test_prompts
-        test_prompts = create_test_prompts(args.n_samples, seed=args.seed)
+        from scripts.collect_latents import create_synthetic_prompts
+        test_prompts = create_synthetic_prompts(args.n_samples, seed=args.seed)
     else:
         with open(test_path) as f:
             test_prompts = json.load(f)
