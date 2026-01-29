@@ -15,14 +15,24 @@ Usage:
 import argparse
 import json
 import random
+import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 from tqdm import tqdm
+
+
+def extract_number(s: Optional[str]) -> Optional[str]:
+    """Extract first number from string for comparison."""
+    if s is None:
+        return None
+    match = re.search(r'-?\d+\.?\d*', s.strip())
+    return match.group() if match else None
 
 
 def create_test_prompts(n: int, seed: int = 42) -> list[dict]:
@@ -108,8 +118,12 @@ def run_mvp_validation(wrapper, test_prompts, verbose=True):
         step1_gt = str(item["step1_result"])
         step2_gt = str(item["step2_result"])
         
-        z3_match = z3_top1 is not None and step1_gt in z3_top1.strip()
-        z5_match = z5_top1 is not None and step2_gt in z5_top1.strip()
+        # Extract number from prediction and compare exactly
+        z3_num = extract_number(z3_top1)
+        z5_num = extract_number(z5_top1)
+        
+        z3_match = z3_num is not None and z3_num == step1_gt
+        z5_match = z5_num is not None and z5_num == step2_gt
         
         z3_total += 1
         z5_total += 1
