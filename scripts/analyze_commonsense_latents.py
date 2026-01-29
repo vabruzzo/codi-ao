@@ -303,40 +303,76 @@ def extract_answer_from_generation(full_output: str, prompt: str) -> str:
     return ""
 
 
-def load_socialiqa(n_examples: int = 100) -> list[dict]:
-    """Load SocialIQA as a held-out commonsense dataset (not used in CODI training)."""
+def load_held_out_dataset(n_examples: int = 100) -> list[dict]:
+    """Load a held-out commonsense dataset (not used in CODI training)."""
     try:
         from datasets import load_dataset
         
-        print("Loading SocialIQA (held-out dataset)...")
-        dataset = load_dataset("social_i_qa", split="validation")
+        # Try PIQA first (Physical Intuition QA)
+        print("Loading PIQA (held-out dataset)...")
+        try:
+            dataset = load_dataset("piqa", split="validation")
+            
+            examples = []
+            for item in dataset:
+                # PIQA format: goal, sol1, sol2, label (0 or 1)
+                goal = item["goal"]
+                choices = [item["sol1"], item["sol2"]]
+                label = item["label"]
+                answer_letter = ["A", "B"][label]
+                
+                # Format like CommonsenseQA
+                choice_str = " ".join([f"{chr(65+i)}: {c}" for i, c in enumerate(choices)])
+                full_question = f"{goal} Choices: {choice_str}"
+                
+                examples.append({
+                    "question": full_question,
+                    "answer": answer_letter,
+                    "choices": {chr(65+i): c for i, c in enumerate(choices)},
+                })
+                
+                if len(examples) >= n_examples:
+                    break
+            
+            print(f"Loaded {len(examples)} examples from PIQA")
+            return examples
+        except Exception as e:
+            print(f"Could not load PIQA: {e}")
         
-        examples = []
-        for item in dataset:
-            # SocialIQA format: context, question, answerA/B/C, label (1/2/3)
-            context = item["context"]
-            question = item["question"]
-            choices = [item["answerA"], item["answerB"], item["answerC"]]
-            label = int(item["label"]) - 1  # Convert 1-indexed to 0-indexed
-            answer_letter = ["A", "B", "C"][label]
+        # Try ARC-Easy as fallback
+        print("Trying ARC-Easy...")
+        try:
+            dataset = load_dataset("allenai/ai2_arc", "ARC-Easy", split="validation")
             
-            # Format like CommonsenseQA
-            choice_str = " ".join([f"{chr(65+i)}: {c}" for i, c in enumerate(choices)])
-            full_question = f"{context} {question} Choices: {choice_str}"
+            examples = []
+            for item in dataset:
+                question = item["question"]
+                choices_data = item["choices"]
+                labels = choices_data["label"]
+                texts = choices_data["text"]
+                answer_key = item["answerKey"]
+                
+                # Format choices
+                choice_str = " ".join([f"{l}: {t}" for l, t in zip(labels, texts)])
+                full_question = f"{question} Choices: {choice_str}"
+                
+                examples.append({
+                    "question": full_question,
+                    "answer": answer_key,
+                    "choices": {l: t for l, t in zip(labels, texts)},
+                })
+                
+                if len(examples) >= n_examples:
+                    break
             
-            examples.append({
-                "question": full_question,
-                "answer": answer_letter,
-                "choices": {chr(65+i): c for i, c in enumerate(choices)},  # Store for shuffling
-            })
-            
-            if len(examples) >= n_examples:
-                break
+            print(f"Loaded {len(examples)} examples from ARC-Easy")
+            return examples
+        except Exception as e:
+            print(f"Could not load ARC-Easy: {e}")
         
-        print(f"Loaded {len(examples)} examples from SocialIQA")
-        return examples
+        return None
     except Exception as e:
-        print(f"Could not load SocialIQA: {e}")
+        print(f"Could not load held-out dataset: {e}")
         return None
 
 
@@ -434,9 +470,9 @@ def main():
 
     # Load examples
     if args.held_out:
-        examples = load_socialiqa(n_examples=args.n_examples)
+        examples = load_held_out_dataset(n_examples=args.n_examples)
         if examples is None:
-            print("Failed to load SocialIQA, falling back to CommonsenseQA")
+            print("Failed to load held-out dataset, falling back to CommonsenseQA")
             examples = load_commonsenseqa(n_examples=args.n_examples)
     elif args.use_real_data:
         examples = load_commonsenseqa(n_examples=args.n_examples)
