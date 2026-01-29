@@ -336,6 +336,122 @@ def run_mvp_validation(wrapper, test_prompts, verbose=True, diagnose=False):
     return result
 
 
+def generate_training_data(
+    wrapper,
+    prompts: list[dict],
+    output_path: str,
+    placeholder_token: str,
+    verbose: bool = True,
+) -> dict:
+    """
+    Generate training data by collecting latents from CODI.
+    
+    For each prompt, collects z2 and z4 latents and pairs them with
+    their corresponding intermediate results.
+    
+    Args:
+        wrapper: CODIWrapper instance
+        prompts: List of prompts with step1_result, step2_result, final_answer
+        output_path: Path to save JSONL output
+        placeholder_token: Placeholder token for oracle prompts
+        verbose: Show progress bar
+        
+    Returns:
+        Dict with generation statistics
+    """
+    from src.activation_oracle import format_oracle_prompt
+    from src.datasets.latent_qa import INTERMEDIATE_RESULT_TEMPLATES
+    
+    examples = []
+    skipped = 0
+    z2_count = 0
+    z4_count = 0
+    
+    iterator = tqdm(prompts, desc="Generating training data") if verbose else prompts
+    
+    for item in iterator:
+        # Run CODI to get latents
+        result = wrapper.collect_latents(
+            prompt=item["prompt"],
+            ground_truth_answer=str(item["final_answer"]),
+        )
+        
+        if len(result.latent_vectors) < 6:
+            skipped += 1
+            continue
+        
+        # Get ground truth intermediate results
+        step1_gt = str(item["step1_result"])
+        step2_gt = str(item["step2_result"])
+        
+        # Create example for z2 (Step 1 result)
+        z2_vector = result.latent_vectors[1]  # index 1 = z2
+        question = random.choice(INTERMEDIATE_RESULT_TEMPLATES)
+        oracle_prompt = format_oracle_prompt(
+            question=question,
+            num_activations=1,
+            layer_percent=50,
+            placeholder_token=placeholder_token,
+        )
+        
+        examples.append({
+            "prompt": oracle_prompt,
+            "latent_vector": z2_vector.cpu().tolist() if hasattr(z2_vector, 'cpu') else z2_vector,
+            "latent_position": 1,
+            "layer_percent": 50,
+            "question": question,
+            "answer": step1_gt,
+            "source_prompt": item["prompt"],
+            "cot_step": f"Step 1 -> {step1_gt}",
+            "question_type": "intermediate_result",
+        })
+        z2_count += 1
+        
+        # Create example for z4 (Step 2 result)
+        z4_vector = result.latent_vectors[3]  # index 3 = z4
+        question = random.choice(INTERMEDIATE_RESULT_TEMPLATES)
+        oracle_prompt = format_oracle_prompt(
+            question=question,
+            num_activations=1,
+            layer_percent=50,
+            placeholder_token=placeholder_token,
+        )
+        
+        examples.append({
+            "prompt": oracle_prompt,
+            "latent_vector": z4_vector.cpu().tolist() if hasattr(z4_vector, 'cpu') else z4_vector,
+            "latent_position": 3,
+            "layer_percent": 50,
+            "question": question,
+            "answer": step2_gt,
+            "source_prompt": item["prompt"],
+            "cot_step": f"Step 2 -> {step2_gt}",
+            "question_type": "intermediate_result",
+        })
+        z4_count += 1
+    
+    # Shuffle examples
+    random.shuffle(examples)
+    
+    # Save to JSONL
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_file, "w") as f:
+        for ex in examples:
+            f.write(json.dumps(ex) + "\n")
+    
+    stats = {
+        "total_examples": len(examples),
+        "z2_examples": z2_count,
+        "z4_examples": z4_count,
+        "skipped_prompts": skipped,
+        "output_path": str(output_file),
+    }
+    
+    return stats
+
+
 def main():
     parser = argparse.ArgumentParser(description="Collect latents and validate MVP")
     parser.add_argument("--n_samples", type=int, default=100, help="Number of test samples")
@@ -347,6 +463,9 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--synthetic", action="store_true", help="Use synthetic prompts instead of GSM8k")
     parser.add_argument("--diagnose", action="store_true", help="Check all latent positions to find best mapping")
+    parser.add_argument("--generate_data", action="store_true", help="Generate training data instead of just validating")
+    parser.add_argument("--train_output", type=str, default="data/latent_qa_train.jsonl", help="Output path for training data")
+    parser.add_argument("--gsm8k_split", type=str, default="test", choices=["train", "test"], help="GSM8k split to use")
     args = parser.parse_args()
     
     print("=" * 60)
@@ -357,14 +476,15 @@ def main():
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     
-    # Load test prompts
+    # Load prompts
     if args.synthetic:
-        print(f"\nCreating {args.n_samples} synthetic test prompts...")
+        print(f"\nCreating {args.n_samples} synthetic prompts...")
         test_prompts = create_synthetic_prompts(args.n_samples, seed=args.seed)
     else:
-        print(f"\nLoading {args.n_samples} prompts from GSM8k test set...")
+        split = args.gsm8k_split if args.generate_data else "test"
+        print(f"\nLoading {args.n_samples} prompts from GSM8k {split} set...")
         try:
-            test_prompts = load_gsm8k_prompts(args.n_samples, split="test", seed=args.seed)
+            test_prompts = load_gsm8k_prompts(args.n_samples, split=split, seed=args.seed)
             print(f"  Loaded {len(test_prompts)} prompts with ≥2 intermediate steps")
         except Exception as e:
             print(f"  Failed to load GSM8k: {e}")
@@ -393,6 +513,33 @@ def main():
     
     print(f"  Hidden size: {wrapper.hidden_size}")
     print(f"  Num layers: {wrapper.num_layers}")
+    
+    # Generate training data if requested
+    if args.generate_data:
+        print(f"\nGenerating training data...")
+        
+        # Get placeholder token from AO config for consistency
+        from src.activation_oracle import DEFAULT_PLACEHOLDER_TOKEN
+        
+        stats = generate_training_data(
+            wrapper=wrapper,
+            prompts=test_prompts,
+            output_path=args.train_output,
+            placeholder_token=DEFAULT_PLACEHOLDER_TOKEN,
+            verbose=args.verbose,
+        )
+        
+        print("\n" + "=" * 60)
+        print("TRAINING DATA GENERATION COMPLETE")
+        print("=" * 60)
+        print(f"  Total examples: {stats['total_examples']}")
+        print(f"  z2 (Step 1) examples: {stats['z2_examples']}")
+        print(f"  z4 (Step 2) examples: {stats['z4_examples']}")
+        print(f"  Skipped prompts: {stats['skipped_prompts']}")
+        print(f"  Saved to: {stats['output_path']}")
+        
+        # Still run validation to show baselines
+        print("\nAlso running validation to establish baselines...")
     
     # Run MVP validation
     print(f"\nRunning MVP validation...")
