@@ -130,6 +130,97 @@ def format_prompt(question: str) -> str:
     return f"{question} Output only the answer and nothing else."
 
 
+def parse_choices(question: str) -> dict[str, str]:
+    """
+    Parse choice texts from a CommonsenseQA question.
+    
+    Returns dict mapping letter -> choice text, e.g.:
+    {"A": "ignore", "B": "enforce", "C": "authoritarian", ...}
+    """
+    import re
+    
+    choices = {}
+    
+    # Pattern: "A: text" or "A) text" or just "A text" followed by next choice or end
+    # Look for patterns like "A: ignore B: enforce" or "A: ignore, B: enforce"
+    pattern = r'([A-E])[\s:\)]+([^A-E:]+?)(?=\s+[A-E][\s:\)]|$)'
+    
+    matches = re.findall(pattern, question)
+    for letter, text in matches:
+        # Clean up the text
+        text = text.strip().rstrip(',').strip()
+        if text:
+            choices[letter] = text.lower()
+    
+    # If regex didn't work well, try simpler approach
+    if len(choices) < 3:
+        # Look for "Choices:" section
+        if "Choices:" in question:
+            choices_part = question.split("Choices:")[-1]
+        elif "choices:" in question.lower():
+            idx = question.lower().find("choices:")
+            choices_part = question[idx + 8:]
+        else:
+            choices_part = question
+        
+        # Split by letter patterns
+        parts = re.split(r'\s+([A-E])[\s:\)]+', choices_part)
+        # parts will be like ['', 'A', 'ignore', 'B', 'enforce', ...]
+        for i in range(1, len(parts) - 1, 2):
+            letter = parts[i]
+            text = parts[i + 1].strip().rstrip(',').strip() if i + 1 < len(parts) else ""
+            # Take only first word/phrase before next letter
+            text = re.split(r'\s+[A-E][\s:\)]', text)[0].strip()
+            if text and letter not in choices:
+                choices[letter] = text.lower()
+    
+    return choices
+
+
+def token_matches_concept(token: str, concept: str) -> bool:
+    """
+    Check if a token matches a concept (answer choice text).
+    
+    Handles:
+    - Exact match (case-insensitive)
+    - Token is start of concept (e.g., "Amaz" matches "amazon")
+    - Concept is start of token (e.g., "amazon" matches "Amazon.com")
+    - Token contains the concept as a word
+    """
+    token_clean = token.strip().lower()
+    concept_clean = concept.strip().lower()
+    
+    # Skip very short tokens (likely punctuation)
+    if len(token_clean) < 2:
+        return False
+    
+    # Skip common filler tokens
+    filler = {'the', 'a', 'an', 'to', 'of', 'in', 'for', 'on', 'is', 'it', 'therefore', 'thus', 'so'}
+    if token_clean in filler:
+        return False
+    
+    # Exact match
+    if token_clean == concept_clean:
+        return True
+    
+    # Token starts with concept (concept is prefix)
+    if len(concept_clean) >= 3 and token_clean.startswith(concept_clean):
+        return True
+    
+    # Concept starts with token (token is prefix) - for truncated tokens
+    if len(token_clean) >= 3 and concept_clean.startswith(token_clean):
+        return True
+    
+    # For multi-word concepts, check if token matches any word
+    concept_words = concept_clean.split()
+    for word in concept_words:
+        if len(word) >= 3:
+            if token_clean == word or token_clean.startswith(word) or word.startswith(token_clean):
+                return True
+    
+    return False
+
+
 def extract_generation(full_output: str, prompt: str) -> str:
     """
     Extract only the model's generated text, removing the prompt.
@@ -249,7 +340,11 @@ def main():
     z_position_tokens = defaultdict(Counter)  # z1, z2, etc. -> token -> count
     eocot_first_position = Counter()  # Which z position first shows eocot
     correct_vs_incorrect = {"correct": [], "incorrect": []}
-    answer_in_latent = Counter()  # Does any z contain the answer?
+    
+    # Three types of "answer in latent" tracking
+    answer_letter_in_latent = Counter()   # Exact letter match (A, B, C, D, E)
+    answer_concept_in_latent = Counter()  # Concept match (the choice text)
+    answer_combined_in_latent = Counter() # Either letter OR concept
 
     print(f"\nAnalyzing {len(examples)} examples...")
     print("-" * 70)
@@ -268,10 +363,14 @@ def main():
         predicted = extract_answer_from_generation(result.predicted_answer, prompt)
         is_correct = predicted == expected
 
+        # Parse choices to get answer concept for this example
+        choices = parse_choices(example["question"])
+        answer_concept = choices.get(expected, "")  # e.g., "ignore" for answer "A"
+        
         if args.verbose:
             # Show what the model actually generated (without prompt)
             gen_preview = raw_generation[:50] if raw_generation else "(empty)"
-            print(f"\n[{i+1}] Expected: {expected}, Generated: '{gen_preview}...', Extracted: {predicted}, Correct: {is_correct}")
+            print(f"\n[{i+1}] Expected: {expected} ('{answer_concept}'), Generated: '{gen_preview}...', Extracted: {predicted}, Correct: {is_correct}")
         
         # Analyze each latent position
         example_data = {
@@ -283,7 +382,11 @@ def main():
         }
 
         first_eocot_pos = None
-        answer_found_in_z = None
+        letter_found_in_z = None
+        concept_found_in_z = None
+        combined_found_in_z = None
+        
+        # answer_concept was already parsed above for verbose output
 
         for j, lv in enumerate(result.latent_vectors[:6]):
             lens = wrapper.logit_lens(lv, top_k=10)
@@ -308,16 +411,35 @@ def main():
                     if any(p.lower() in top1_token.lower() for p in eocot_patterns):
                         first_eocot_pos = j + 1
 
-            # Check if answer letter appears as EXACT match in top tokens
-            # (not just as substring - "A" in "Apple" shouldn't count)
+            # Check for answer in latent - THREE types of matches
+            found_letter = False
+            found_concept = False
+            
             for k, tok in enumerate(top_tokens[:5]):
                 tok_clean = tok.strip()
-                # Only count if token IS the letter or letter with punctuation
-                if tok_clean == expected or tok_clean in [f"{expected}.", f"{expected}:", f"{expected})"]:
-                    if answer_found_in_z is None:  # Only count first occurrence
-                        answer_found_in_z = z_name
-                        answer_in_latent[z_name] += 1
-                    break
+                
+                # 1. Letter match: exact letter or letter with punctuation
+                if not found_letter:
+                    if tok_clean == expected or tok_clean in [f"{expected}.", f"{expected}:", f"{expected})"]:
+                        found_letter = True
+                
+                # 2. Concept match: token matches the answer's choice text
+                if not found_concept and answer_concept:
+                    if token_matches_concept(tok, answer_concept):
+                        found_concept = True
+            
+            # Track first occurrence of each match type
+            if found_letter and letter_found_in_z is None:
+                letter_found_in_z = z_name
+                answer_letter_in_latent[z_name] += 1
+            
+            if found_concept and concept_found_in_z is None:
+                concept_found_in_z = z_name
+                answer_concept_in_latent[z_name] += 1
+            
+            if (found_letter or found_concept) and combined_found_in_z is None:
+                combined_found_in_z = z_name
+                answer_combined_in_latent[z_name] += 1
 
             example_data["latents"].append({
                 "position": z_name,
@@ -325,6 +447,12 @@ def main():
                 "top1_prob": top1_prob,
                 "top5": list(zip(top_tokens[:5], top_probs[:5])),
             })
+        
+        # Store match info in example data
+        example_data["answer_concept"] = answer_concept
+        example_data["letter_found_in"] = letter_found_in_z
+        example_data["concept_found_in"] = concept_found_in_z
+        example_data["combined_found_in"] = combined_found_in_z
 
             if args.verbose:
                 print(f"  {z_name}: '{top1_token}' ({top1_prob:.2f})")
@@ -371,12 +499,36 @@ def main():
             pct = count / n_total * 100
             print(f"      '{token}': {count} ({pct:.1f}%)")
 
-    # 4. Answer found in latents?
-    print("\n4. Answer Letter Found in Top-5 Tokens:")
+    # 4. Answer found in latents? - THREE metrics
+    print("\n4. Answer Found in Top-5 Tokens (by position of first match):")
+    
+    # Calculate totals
+    total_letter = sum(answer_letter_in_latent.values())
+    total_concept = sum(answer_concept_in_latent.values())
+    total_combined = sum(answer_combined_in_latent.values())
+    
+    print(f"\n   TOTALS:")
+    print(f"      Letter matches (exact A-E):     {total_letter}/{n_total} ({total_letter/n_total*100:.1f}%)")
+    print(f"      Concept matches (choice text):  {total_concept}/{n_total} ({total_concept/n_total*100:.1f}%)")
+    print(f"      Combined (letter OR concept):   {total_combined}/{n_total} ({total_combined/n_total*100:.1f}%)")
+    
+    print("\n   By position - LETTER matches:")
     for z_name in ["z1", "z2", "z3", "z4", "z5", "z6"]:
-        count = answer_in_latent[z_name]
+        count = answer_letter_in_latent[z_name]
         pct = count / n_total * 100
-        print(f"   {z_name}: {count} times ({pct:.1f}%)")
+        print(f"      {z_name}: {count} ({pct:.1f}%)")
+    
+    print("\n   By position - CONCEPT matches:")
+    for z_name in ["z1", "z2", "z3", "z4", "z5", "z6"]:
+        count = answer_concept_in_latent[z_name]
+        pct = count / n_total * 100
+        print(f"      {z_name}: {count} ({pct:.1f}%)")
+    
+    print("\n   By position - COMBINED (letter OR concept):")
+    for z_name in ["z1", "z2", "z3", "z4", "z5", "z6"]:
+        count = answer_combined_in_latent[z_name]
+        pct = count / n_total * 100
+        print(f"      {z_name}: {count} ({pct:.1f}%)")
 
     # 5. Correct vs Incorrect patterns
     print("\n5. Correct vs Incorrect Predictions:")
@@ -410,25 +562,55 @@ def main():
         "accuracy": n_correct / n_total,
         "eocot_first_position": dict(eocot_first_position),
         "z_position_top_tokens": {k: dict(v.most_common(10)) for k, v in z_position_tokens.items()},
-        "answer_in_latent": dict(answer_in_latent),
+        "answer_in_latent": {
+            "letter_matches": {
+                "total": total_letter,
+                "total_pct": total_letter / n_total,
+                "by_position": dict(answer_letter_in_latent),
+            },
+            "concept_matches": {
+                "total": total_concept,
+                "total_pct": total_concept / n_total,
+                "by_position": dict(answer_concept_in_latent),
+            },
+            "combined_matches": {
+                "total": total_combined,
+                "total_pct": total_combined / n_total,
+                "by_position": dict(answer_combined_in_latent),
+            },
+        },
     }
     
     with open(output_path, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"\nSaved summary to {output_path}")
 
+    # 6. Show some concept match examples
+    print("\n6. Sample Concept Matches (where concept found but not letter):")
+    concept_only_examples = [ex for ex in results if ex.get("concept_found_in") and not ex.get("letter_found_in")]
+    for ex in concept_only_examples[:5]:
+        print(f"   Expected: {ex['expected']} ('{ex.get('answer_concept', '')}'), "
+              f"Concept in: {ex['concept_found_in']}, "
+              f"z2 top: '{ex['latents'][1]['top1'] if len(ex['latents']) > 1 else 'N/A'}'")
+    
+    if not concept_only_examples:
+        print("   (No examples where concept matched but letter didn't)")
+    
     print("\n" + "=" * 70)
     print("KEY FINDINGS")
     print("=" * 70)
-    print("""
+    print(f"""
 Compare these findings to math (from LessWrong):
 - Math: z2 encodes Step 1 result (100%), z4 encodes Step 2 result (85%)
 - Math: <|eocot|> typically appears in z5/z6 (uses 4-5 latent steps)
 
-Questions to answer:
-1. Does commonsense use fewer latent steps? (eocot appearing earlier)
-2. Does z2 encode task-relevant concepts for commonsense?
-3. Is there a consistent pattern across examples?
+This analysis shows:
+- Letter in latent:  {total_letter}/{n_total} ({total_letter/n_total*100:.1f}%)
+- Concept in latent: {total_concept}/{n_total} ({total_concept/n_total*100:.1f}%)  
+- Combined:          {total_combined}/{n_total} ({total_combined/n_total*100:.1f}%)
+
+The gap between letter and combined shows how often the model encodes
+the answer CONCEPT without the letter itself.
 """)
 
 
