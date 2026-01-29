@@ -487,6 +487,10 @@ class CODIAOEvaluator:
         pred = prediction.strip().lower()
         gt = ground_truth.strip().lower()
         
+        # Empty prediction is always wrong
+        if not pred:
+            return False
+        
         # Try numeric comparison
         try:
             pred_nums = re.findall(r'[-]?\d+\.?\d*', pred)
@@ -496,7 +500,8 @@ class CODIAOEvaluator:
         except (ValueError, IndexError):
             pass
         
-        return pred == gt or pred in gt or gt in pred
+        # String comparison (only if both non-empty)
+        return pred == gt or (len(pred) > 0 and pred in gt) or (len(gt) > 0 and gt in pred)
     
     def _print_summary(self, summary: EvaluationSummary):
         """Print evaluation summary."""

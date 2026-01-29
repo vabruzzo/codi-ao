@@ -38,6 +38,10 @@ class BaselineResult:
         pred = self.prediction.strip().lower()
         gt = self.ground_truth.strip().lower()
         
+        # Empty prediction is always wrong
+        if not pred:
+            return False
+        
         # Try numeric comparison
         try:
             pred_num = float(re.findall(r'[-]?\d+\.?\d*', pred)[-1])
@@ -46,8 +50,8 @@ class BaselineResult:
         except (IndexError, ValueError):
             pass
         
-        # String comparison
-        return pred == gt or pred in gt or gt in pred
+        # String comparison (only if both non-empty)
+        return pred == gt or (len(pred) > 0 and pred in gt) or (len(gt) > 0 and gt in pred)
 
 
 class LogitLensBaseline:
