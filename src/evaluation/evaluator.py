@@ -159,9 +159,10 @@ class CODIAOEvaluator:
                 step_idx = self.position_to_step.get(pos, 0)
                 
                 # Get ground truth
-                if "step1_result" in item and pos == 2:
+                # pos == 1 is z2 (step 1), pos == 3 is z4 (step 2)
+                if "step1_result" in item and pos == 1:
                     gt = str(item["step1_result"])
-                elif "step2_result" in item and pos == 4:
+                elif "step2_result" in item and pos == 3:
                     gt = str(item["step2_result"])
                 elif "results" in item and step_idx < len(item["results"]):
                     gt = str(item["results"][step_idx])
