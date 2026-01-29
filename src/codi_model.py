@@ -303,16 +303,19 @@ class CODI(nn.Module):
             latent_embd = outputs.hidden_states[-1][:, -1:, :]  # (batch, 1, hidden)
 
             if not skip_thinking:
-                # Project initial latent embedding (like reference code does before loop)
-                if self.use_prj:
-                    latent_embd = self.prj(latent_embd)
-                    latent_embd = latent_embd.to(dtype=self.codi.dtype)
-
                 # Latent reasoning iterations
+                # Following reference code structure exactly
                 for i in range(num_latent_iterations):
-                    # Forward with (already projected) latent embedding
+                    # Project latent embedding
+                    if self.use_prj:
+                        latent_embd_projected = self.prj(latent_embd)
+                        latent_embd_projected = latent_embd_projected.to(dtype=self.codi.dtype)
+                    else:
+                        latent_embd_projected = latent_embd
+
+                    # Forward with projected latent embedding
                     outputs = self.codi(
-                        inputs_embeds=latent_embd,
+                        inputs_embeds=latent_embd_projected,
                         past_key_values=past_key_values,
                         use_cache=True,
                         output_hidden_states=True,
@@ -323,22 +326,18 @@ class CODI(nn.Module):
                         hs = torch.stack([h for h in outputs.hidden_states], dim=0)
                         all_hidden_states.append(hs)
 
-                    # Store OUTPUT hidden state (this is what logit lens needs!)
-                    # This matches the reference: logit_lens(outputs.hidden_states)
-                    output_hidden = outputs.hidden_states[-1][:, -1:, :]
+                    # Get output hidden state - this is what we apply logit lens to
+                    # (same as reference: logit_lens applied after forward pass)
+                    latent_embd = outputs.hidden_states[-1][:, -1:, :]
                     
                     if return_latent_vectors:
-                        latent_vectors.append(output_hidden.clone())
-
-                    # Project for next iteration
-                    if self.use_prj:
-                        latent_embd = self.prj(output_hidden)
-                        latent_embd = latent_embd.to(dtype=self.codi.dtype)
-                    else:
-                        latent_embd = output_hidden
-
-                    if return_latent_vectors:
-                        latent_vectors_post_prj.append(latent_embd.clone())
+                        # Store the OUTPUT of this iteration (for logit lens)
+                        latent_vectors.append(latent_embd.clone())
+                        # Also store the projected version (input to next iteration)
+                        if self.use_prj:
+                            latent_vectors_post_prj.append(
+                                self.prj(latent_embd).to(dtype=self.codi.dtype).clone()
+                            )
 
             # Add end-of-thought token
             if eot_token is not None:
