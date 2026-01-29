@@ -24,9 +24,8 @@ class ClassificationExample:
 
     # Input
     prompt: str  # The oracle prompt (with placeholders)
-    latent_vector: list[float]  # The latent vector to inject
-    latent_position: int  # Which latent position (0-5)
-    layer_percent: int  # Layer the latent was collected from
+    latent_vectors: list[list[float]]  # List of latent vectors to inject
+    latent_positions: list[int]  # Which latent positions (e.g., [1] or [0,1,2,3,4,5])
 
     # Target
     question: str  # The yes/no question
@@ -36,12 +35,22 @@ class ClassificationExample:
     source_prompt: str = ""  # Original math problem
     classification_type: str = ""  # Type of classification
     ground_truth_value: str = ""  # The actual value being classified
+    is_multi_latent: bool = False  # True if using multiple vectors
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ClassificationExample":
+        # Handle backward compatibility with old format
+        if "latent_vector" in d and "latent_vectors" not in d:
+            d["latent_vectors"] = [d.pop("latent_vector")]
+        if "latent_position" in d and "latent_positions" not in d:
+            d["latent_positions"] = [d.pop("latent_position")]
+        if "layer_percent" in d:
+            d.pop("layer_percent")
+        if "is_multi_latent" not in d:
+            d["is_multi_latent"] = len(d.get("latent_vectors", [])) > 1
         return cls(**d)
 
 
@@ -203,19 +212,16 @@ class ClassificationDatasetGenerator:
     def __init__(
         self,
         codi_wrapper: Optional["CODIWrapper"] = None,
-        layer_percent: int = 50,
         placeholder_token: Optional[str] = None,
     ):
         """
         Args:
             codi_wrapper: CODI model wrapper for collecting latents
-            layer_percent: Layer percentage for prompt format
             placeholder_token: Placeholder token to use in prompts. If None, uses default.
         """
         from ..activation_oracle import DEFAULT_PLACEHOLDER_TOKEN
         
         self.codi_wrapper = codi_wrapper
-        self.layer_percent = layer_percent
         self.placeholder_token = placeholder_token or DEFAULT_PLACEHOLDER_TOKEN
 
         # Position to step mapping
@@ -306,20 +312,19 @@ class ClassificationDatasetGenerator:
                         oracle_prompt = format_oracle_prompt(
                             question=question,
                             num_activations=1,
-                            layer_percent=self.layer_percent,
                             placeholder_token=self.placeholder_token,
                         )
 
                         example = ClassificationExample(
                             prompt=oracle_prompt,
-                            latent_vector=latent_vec.tolist(),
-                            latent_position=lat_pos,
-                            layer_percent=self.layer_percent,
+                            latent_vectors=[latent_vec.tolist()],
+                            latent_positions=[lat_pos],
                             question=question,
                             answer=answer,
                             source_prompt=prompt,
                             classification_type=task_type,
                             ground_truth_value=step_result,
+                            is_multi_latent=False,
                         )
                         examples.append(example)
 
@@ -381,20 +386,20 @@ def create_synthetic_examples(
         oracle_prompt = format_oracle_prompt(
             question=question,
             num_activations=1,
-            layer_percent=50,
             placeholder_token=placeholder_token,
         )
 
+        lat_pos = random.choice([1, 3])  # z2 or z4
         example = ClassificationExample(
             prompt=oracle_prompt,
-            latent_vector=torch.randn(2048).tolist(),
-            latent_position=random.choice([1, 3]),  # z2 or z4
-            layer_percent=50,
+            latent_vectors=[torch.randn(2048).tolist()],
+            latent_positions=[lat_pos],
             question=question,
             answer=answer,
             source_prompt=f"Synthetic problem {i}",
             classification_type=task_type,
             ground_truth_value=str(random.randint(1, 200)),
+            is_multi_latent=False,
         )
         examples.append(example)
 

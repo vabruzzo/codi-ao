@@ -55,29 +55,35 @@ class AOConfig:
 
 
 def get_introspection_prefix(
-    layer: int | str,
     num_positions: int,
     placeholder_token: str = DEFAULT_PLACEHOLDER_TOKEN,
+    prefix_style: str = "reasoning",
 ) -> str:
     """
     Create the introspection prefix with placeholder tokens.
 
-    Format:
-        Layer {layer}:{placeholder}{placeholder}...
+    Format (reasoning style):
+        Reasoning:{placeholder}{placeholder}...
+    
+    Format (steps style, for multi-latent):
+        Steps:{placeholder}{placeholder}...
 
     The placeholder appears after ":" to ensure stable tokenization
     (tokens at line start can tokenize differently).
 
     Args:
-        layer: Layer identifier (int or string like "50%")
         num_positions: Number of placeholder tokens to include
         placeholder_token: Token to use as placeholder (default: " ?")
+        prefix_style: "reasoning" (default) or "steps" for multi-latent
 
     Returns:
         Formatted prefix string
     """
-    # Put placeholders after colon to avoid start-of-line tokenization issues
-    prefix = f"Layer {layer}:"
+    if prefix_style == "steps":
+        prefix = "Steps:"
+    else:
+        prefix = "Reasoning:"
+    
     prefix += placeholder_token * num_positions
     prefix += " "  # Space before question
     return prefix
@@ -134,9 +140,8 @@ class AOPrompt:
         cls,
         question: str,
         activation_vectors: list[torch.Tensor],
-        layer: int = -1,
-        layer_percent: int = 50,
         placeholder_token: str = DEFAULT_PLACEHOLDER_TOKEN,
+        multi_latent: bool = False,
     ) -> "AOPrompt":
         """
         Create an AO prompt from a question and activation vectors.
@@ -147,32 +152,28 @@ class AOPrompt:
         placeholder_token may cause mismatches if AOConfig.placeholder_token
         was customized.
 
-        Format matches original AO paper:
-            Layer: {layer}\n
-             ? ? ?...\n
-            {question}
+        Format:
+            Reasoning:{placeholder}... {question}
+        
+        For multi-latent:
+            Steps:{placeholder}... {question}
 
         Args:
             question: The question to ask about the activations
             activation_vectors: List of activation tensors to inject
-            layer: Specific layer number (-1 to use layer_percent)
-            layer_percent: Layer as percentage of model depth
             placeholder_token: Token to use as placeholder (must match AO config!)
+            multi_latent: If True, use "Steps:" prefix for multi-latent questions
         """
         num_acts = len(activation_vectors)
+        prefix_style = "steps" if multi_latent else "reasoning"
 
-        if layer == -1:
-            layer_str = f"{layer_percent}%"
-        else:
-            layer_str = str(layer)
-
-        prefix = get_introspection_prefix(layer_str, num_acts, placeholder_token)
+        prefix = get_introspection_prefix(num_acts, placeholder_token, prefix_style)
         text = prefix + question
 
         return cls(
             text=text,
             activation_vectors=activation_vectors,
-            layer=layer,
+            layer=-1,
             num_placeholders=num_acts,
         )
 
@@ -379,7 +380,6 @@ class ActivationOracle:
         prompt = AOPrompt.from_question(
             question="What is the intermediate calculation result?",
             activation_vectors=[z2_vector],  # From CODI latent position 1 (z2)
-            layer_percent=50,
         )
 
         # Get the oracle's answer
@@ -593,8 +593,7 @@ class ActivationOracle:
         self,
         question: str,
         activation_vectors: list[torch.Tensor],
-        layer: int = -1,
-        layer_percent: int = 50,
+        multi_latent: bool = False,
     ) -> AOPrompt:
         """
         Create an AOPrompt using this oracle's configured placeholder token.
@@ -605,8 +604,7 @@ class ActivationOracle:
         Args:
             question: The question to ask about the activations
             activation_vectors: List of activation tensors to inject
-            layer: Specific layer number (-1 to use layer_percent)
-            layer_percent: Layer as percentage of model depth
+            multi_latent: If True, use "Steps:" prefix for multi-latent questions
 
         Returns:
             AOPrompt configured for this oracle
@@ -614,9 +612,8 @@ class ActivationOracle:
         return AOPrompt.from_question(
             question=question,
             activation_vectors=activation_vectors,
-            layer=layer,
-            layer_percent=layer_percent,
             placeholder_token=self.config.placeholder_token,
+            multi_latent=multi_latent,
         )
 
     def forward_with_injection(
@@ -702,30 +699,32 @@ class ActivationOracle:
 def format_oracle_prompt(
     question: str,
     num_activations: int = 1,
-    layer_percent: int = 50,
     placeholder_token: str = DEFAULT_PLACEHOLDER_TOKEN,
+    multi_latent: bool = False,
 ) -> str:
     """
     Format a prompt for the Activation Oracle.
 
-    Uses the standard format from the AO paper:
-        Layer: {layer}\n
-         ? ? ?...\n
-        {question}
+    Format:
+        Reasoning:{placeholder}... {question}
+    
+    For multi-latent (all 6 vectors):
+        Steps:{placeholder}... {question}
 
     Args:
         question: The question to ask
         num_activations: Number of activation vectors to inject
-        layer_percent: Layer percentage the activations came from
         placeholder_token: The placeholder token to use
+        multi_latent: If True, use "Steps:" prefix for multi-latent questions
 
     Returns:
         Formatted prompt string
     """
+    prefix_style = "steps" if multi_latent else "reasoning"
     prefix = get_introspection_prefix(
-        f"{layer_percent}%",
         num_activations,
         placeholder_token=placeholder_token,
+        prefix_style=prefix_style,
     )
     return prefix + question
 
@@ -738,7 +737,6 @@ if __name__ == "__main__":
     prompt_text = format_oracle_prompt(
         question="What is the intermediate calculation result?",
         num_activations=1,
-        layer_percent=50,
     )
     print(f"Formatted prompt: {prompt_text}")
 
@@ -747,7 +745,6 @@ if __name__ == "__main__":
     prompt = AOPrompt.from_question(
         question="What number is stored here?",
         activation_vectors=[dummy_vector],
-        layer_percent=50,
     )
     print(f"AOPrompt text: {prompt.text}")
     print(f"Number of vectors: {len(prompt.activation_vectors)}")

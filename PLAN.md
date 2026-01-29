@@ -116,7 +116,12 @@ Evaluate on held-out GSM8k-style subset:
 **Do not proceed to Phase 2 until**:
 - [x] Logit lens replicates findings: z2=100% (Step 1), z4=85% (Step 2) ✓
 - [x] Pipeline runs end-to-end without errors ✓
-- [ ] AO meets or exceeds logit lens on intermediate result extraction for z2/z4
+- [x] AO meets or exceeds logit lens on intermediate result extraction for z2/z4 ✓
+
+**Results (Jan 29, 2026)**:
+- AO: 97.75% overall (z2: 99.5%, z4: 96.0%)
+- Logit Lens: 96.75% overall (z2: 100%, z4: 93.5%)
+- See `PHASE1_RESULTS.md` for full details
 
 ---
 

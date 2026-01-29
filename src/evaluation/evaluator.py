@@ -184,7 +184,6 @@ class CODIAOEvaluator:
                     ao_prompt = self.ao.create_prompt(
                         question="What is the intermediate calculation result?",
                         activation_vectors=[latent_vec],
-                        layer_percent=50,
                     )
                     ao_pred = self.ao.generate(ao_prompt)
                     ao_correct_flag = self._check_match(ao_pred, gt)
@@ -281,7 +280,6 @@ class CODIAOEvaluator:
             ao_prompt = self.ao.create_prompt(
                 question=ex.question,
                 activation_vectors=[latent_vec],
-                layer_percent=ex.layer_percent,
             )
             
             prediction = self.ao.generate(ao_prompt).strip().lower()

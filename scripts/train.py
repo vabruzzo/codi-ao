@@ -106,8 +106,15 @@ class LatentQADataset(Dataset):
         labels = encoding["input_ids"].clone()
         labels[0, :prompt_len] = -100  # Mask prompt
         
-        # Get latent vector
-        latent_vector = torch.tensor(ex["latent_vector"], dtype=torch.float32)
+        # Get latent vectors - handle both old (latent_vector) and new (latent_vectors) format
+        if "latent_vectors" in ex:
+            # New format: list of vectors
+            latent_vectors = [torch.tensor(v, dtype=torch.float32) for v in ex["latent_vectors"]]
+            # Stack into (num_vectors, hidden_dim)
+            latent_tensor = torch.stack(latent_vectors)
+        else:
+            # Old format: single vector
+            latent_tensor = torch.tensor(ex["latent_vector"], dtype=torch.float32).unsqueeze(0)
         
         # Find placeholder positions using the special token
         positions = (encoding["input_ids"][0] == self.special_token_id).nonzero(as_tuple=True)[0]
@@ -119,9 +126,7 @@ class LatentQADataset(Dataset):
             )
         
         # Validate vector count matches position count
-        # For single-vector examples, we expect 1 placeholder
-        # latent_vector is (hidden_dim,), so num_vectors = 1
-        num_vectors = 1 if latent_vector.dim() == 1 else latent_vector.shape[0]
+        num_vectors = latent_tensor.shape[0]
         num_positions = len(positions)
         if num_vectors != num_positions:
             raise ValueError(
@@ -133,7 +138,7 @@ class LatentQADataset(Dataset):
             "input_ids": encoding["input_ids"].squeeze(0),
             "attention_mask": encoding["attention_mask"].squeeze(0),
             "labels": labels.squeeze(0),
-            "latent_vector": latent_vector,
+            "latent_vectors": latent_tensor,  # Shape: (num_vectors, hidden_dim)
             "positions": positions.tolist(),
         }
 
@@ -144,16 +149,17 @@ def collate_fn(batch):
     attention_mask = torch.stack([b["attention_mask"] for b in batch])
     labels = torch.stack([b["labels"] for b in batch])
     
-    # Handle variable-length positions
-    latent_vectors = [b["latent_vector"] for b in batch]
+    # Handle variable-length positions and vectors
+    # Each item has latent_vectors of shape (num_vectors, hidden_dim)
+    latent_vectors = [b["latent_vectors"] for b in batch]
     positions = [b["positions"] for b in batch]
     
     return {
         "input_ids": input_ids,
         "attention_mask": attention_mask,
         "labels": labels,
-        "latent_vectors": latent_vectors,
-        "positions": positions,
+        "latent_vectors": latent_vectors,  # List of tensors, each (K_b, hidden_dim)
+        "positions": positions,  # List of position lists
     }
 
 
@@ -232,8 +238,9 @@ def train_epoch(
 
 def main():
     parser = argparse.ArgumentParser(description="Train CODI Activation Oracle")
-    parser.add_argument("--mode", type=str, choices=["mvp", "full"], default="mvp")
-    parser.add_argument("--n_samples", type=int, default=10000)
+    parser.add_argument("--mode", type=str, choices=["mvp", "full", "phase2"], default="mvp")
+    parser.add_argument("--data_path", type=str, default=None, help="Path to training data (default: auto-detect)")
+    parser.add_argument("--n_samples", type=int, default=None, help="Limit number of samples (default: use all)")
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-5)
@@ -241,13 +248,15 @@ def main():
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--gradient_accumulation", type=int, default=1, help="Gradient accumulation steps")
     args = parser.parse_args()
     
     print("=" * 60)
     print("CODI Activation Oracle - Training")
     print("=" * 60)
     print(f"Mode: {args.mode}")
-    print(f"Samples: {args.n_samples}")
+    if args.n_samples:
+        print(f"Max samples: {args.n_samples}")
     
     # Set seeds
     random.seed(args.seed)
@@ -264,20 +273,28 @@ def main():
         lora_alpha=128,
     )
     
-    # Check for training data
-    data_path = Path("data/latent_qa_train.jsonl")
+    # Determine data path
+    if args.data_path:
+        data_path = Path(args.data_path)
+    elif args.mode == "phase2":
+        data_path = Path("data/phase2/train.jsonl")
+    else:
+        data_path = Path("data/latent_qa_train.jsonl")
+    
     if not data_path.exists():
         print(f"\nNo training data found at {data_path}")
-        print("Generating synthetic data for testing...")
+        if args.mode == "phase2":
+            print("Run scripts/generate_phase2_data.py first to generate training data")
+            sys.exit(1)
         
-        from src.datasets.latent_qa import create_synthetic_examples, save_dataset
-        # Pass placeholder token from config to ensure consistency
+        print("Generating synthetic data for testing...")
+        from src.datasets.latent_qa import create_synthetic_examples
+        n_samples = args.n_samples or 10000
         examples = create_synthetic_examples(
-            args.n_samples,
+            n_samples,
             placeholder_token=config.placeholder_token,
         )
         
-        # Convert to dict format
         examples_dict = [e.to_dict() for e in examples]
         
         data_path.parent.mkdir(parents=True, exist_ok=True)
@@ -294,10 +311,20 @@ def main():
         for line in f:
             examples.append(json.loads(line))
     
-    if len(examples) > args.n_samples:
+    if args.n_samples and len(examples) > args.n_samples:
         examples = random.sample(examples, args.n_samples)
     
     print(f"Loaded {len(examples)} examples")
+    
+    # Show task breakdown if available
+    task_counts = {}
+    for ex in examples[:1000]:  # Sample first 1000
+        task = ex.get("task", ex.get("question_type", "unknown"))
+        task_counts[task] = task_counts.get(task, 0) + 1
+    if len(task_counts) > 1:
+        print("Task breakdown (sampled):")
+        for task, count in task_counts.items():
+            print(f"  {task}: {count}")
     
     # Initialize AO model
     print("\nInitializing Activation Oracle model...")
@@ -330,6 +357,10 @@ def main():
     
     # Training loop
     print(f"\nStarting training for {args.epochs} epochs...")
+    print(f"  Batch size: {args.batch_size}")
+    print(f"  Gradient accumulation: {args.gradient_accumulation}")
+    print(f"  Effective batch size: {args.batch_size * args.gradient_accumulation}")
+    
     for epoch in range(1, args.epochs + 1):
         avg_loss = train_epoch(
             model=ao,
@@ -338,6 +369,7 @@ def main():
             scheduler=scheduler,
             device=args.device,
             epoch=epoch,
+            gradient_accumulation_steps=args.gradient_accumulation,
             verbose=args.verbose,
         )
         print(f"Epoch {epoch} - Average Loss: {avg_loss:.4f}")

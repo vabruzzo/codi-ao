@@ -342,12 +342,14 @@ def generate_training_data(
     output_path: str,
     placeholder_token: str,
     verbose: bool = True,
+    multi_latent_ratio: float = 0.33,
 ) -> dict:
     """
     Generate training data by collecting latents from CODI.
     
-    For each prompt, collects z2 and z4 latents and pairs them with
-    their corresponding intermediate results.
+    Creates a mix of:
+    - Single-latent examples: z2 or z4 paired with their intermediate results
+    - Multi-latent examples: all 6 vectors with full reasoning questions
     
     Args:
         wrapper: CODIWrapper instance
@@ -355,17 +357,18 @@ def generate_training_data(
         output_path: Path to save JSONL output
         placeholder_token: Placeholder token for oracle prompts
         verbose: Show progress bar
+        multi_latent_ratio: Fraction of examples that use all 6 vectors (default 0.33)
         
     Returns:
         Dict with generation statistics
     """
     from src.activation_oracle import format_oracle_prompt
-    from src.datasets.latent_qa import INTERMEDIATE_RESULT_TEMPLATES
+    from src.datasets.latent_qa import INTERMEDIATE_RESULT_TEMPLATES, MULTI_LATENT_TEMPLATES
     
     examples = []
     skipped = 0
-    z2_count = 0
-    z4_count = 0
+    single_count = 0
+    multi_count = 0
     
     iterator = tqdm(prompts, desc="Generating training data") if verbose else prompts
     
@@ -380,55 +383,103 @@ def generate_training_data(
             skipped += 1
             continue
         
-        # Get ground truth intermediate results
+        # Get ground truth values
         step1_gt = str(item["step1_result"])
         step2_gt = str(item["step2_result"])
+        final_gt = str(item["final_answer"])
         
-        # Create example for z2 (Step 1 result)
-        z2_vector = result.latent_vectors[1]  # index 1 = z2
-        question = random.choice(INTERMEDIATE_RESULT_TEMPLATES)
-        oracle_prompt = format_oracle_prompt(
-            question=question,
-            num_activations=1,
-            layer_percent=50,
-            placeholder_token=placeholder_token,
-        )
+        # Helper to convert vector to list
+        def vec_to_list(v):
+            return v.cpu().tolist() if hasattr(v, 'cpu') else v
         
-        examples.append({
-            "prompt": oracle_prompt,
-            "latent_vector": z2_vector.cpu().tolist() if hasattr(z2_vector, 'cpu') else z2_vector,
-            "latent_position": 1,
-            "layer_percent": 50,
-            "question": question,
-            "answer": step1_gt,
-            "source_prompt": item["prompt"],
-            "cot_step": f"Step 1 -> {step1_gt}",
-            "question_type": "intermediate_result",
-        })
-        z2_count += 1
+        # Decide if this prompt generates single or multi-latent examples
+        use_multi = random.random() < multi_latent_ratio
         
-        # Create example for z4 (Step 2 result)
-        z4_vector = result.latent_vectors[3]  # index 3 = z4
-        question = random.choice(INTERMEDIATE_RESULT_TEMPLATES)
-        oracle_prompt = format_oracle_prompt(
-            question=question,
-            num_activations=1,
-            layer_percent=50,
-            placeholder_token=placeholder_token,
-        )
-        
-        examples.append({
-            "prompt": oracle_prompt,
-            "latent_vector": z4_vector.cpu().tolist() if hasattr(z4_vector, 'cpu') else z4_vector,
-            "latent_position": 3,
-            "layer_percent": 50,
-            "question": question,
-            "answer": step2_gt,
-            "source_prompt": item["prompt"],
-            "cot_step": f"Step 2 -> {step2_gt}",
-            "question_type": "intermediate_result",
-        })
-        z4_count += 1
+        if use_multi:
+            # Multi-latent example: all 6 vectors
+            all_vectors = [vec_to_list(result.latent_vectors[i]) for i in range(6)]
+            question = random.choice(MULTI_LATENT_TEMPLATES)
+            
+            # Generate appropriate answer based on question type
+            if "first step" in question.lower() or "step 1" in question.lower():
+                answer = step1_gt
+            elif "second" in question.lower() or "step 2" in question.lower():
+                answer = step2_gt
+            elif "final" in question.lower() or "answer" in question.lower():
+                answer = final_gt
+            elif "error" in question.lower() or "correct" in question.lower():
+                # For verification questions, we assume correct reasoning
+                answer = "Yes, the reasoning is correct."
+            else:
+                # Full reasoning summary
+                answer = f"Step 1: {step1_gt}, Step 2: {step2_gt}, Final: {final_gt}"
+            
+            oracle_prompt = format_oracle_prompt(
+                question=question,
+                num_activations=6,
+                placeholder_token=placeholder_token,
+                multi_latent=True,
+            )
+            
+            examples.append({
+                "prompt": oracle_prompt,
+                "latent_vectors": all_vectors,
+                "latent_positions": [0, 1, 2, 3, 4, 5],
+                "question": question,
+                "answer": answer,
+                "source_prompt": item["prompt"],
+                "cot_step": f"Full: {step1_gt} -> {step2_gt} -> {final_gt}",
+                "question_type": "full_reasoning",
+                "is_multi_latent": True,
+            })
+            multi_count += 1
+            
+        else:
+            # Single-latent examples: z2 and z4
+            
+            # Example for z2 (Step 1 result)
+            z2_vector = result.latent_vectors[1]
+            question = random.choice(INTERMEDIATE_RESULT_TEMPLATES)
+            oracle_prompt = format_oracle_prompt(
+                question=question,
+                num_activations=1,
+                placeholder_token=placeholder_token,
+            )
+            
+            examples.append({
+                "prompt": oracle_prompt,
+                "latent_vectors": [vec_to_list(z2_vector)],
+                "latent_positions": [1],
+                "question": question,
+                "answer": step1_gt,
+                "source_prompt": item["prompt"],
+                "cot_step": f"Step 1 -> {step1_gt}",
+                "question_type": "intermediate_result",
+                "is_multi_latent": False,
+            })
+            single_count += 1
+            
+            # Example for z4 (Step 2 result)
+            z4_vector = result.latent_vectors[3]
+            question = random.choice(INTERMEDIATE_RESULT_TEMPLATES)
+            oracle_prompt = format_oracle_prompt(
+                question=question,
+                num_activations=1,
+                placeholder_token=placeholder_token,
+            )
+            
+            examples.append({
+                "prompt": oracle_prompt,
+                "latent_vectors": [vec_to_list(z4_vector)],
+                "latent_positions": [3],
+                "question": question,
+                "answer": step2_gt,
+                "source_prompt": item["prompt"],
+                "cot_step": f"Step 2 -> {step2_gt}",
+                "question_type": "intermediate_result",
+                "is_multi_latent": False,
+            })
+            single_count += 1
     
     # Shuffle examples
     random.shuffle(examples)
@@ -443,8 +494,8 @@ def generate_training_data(
     
     stats = {
         "total_examples": len(examples),
-        "z2_examples": z2_count,
-        "z4_examples": z4_count,
+        "single_latent_examples": single_count,
+        "multi_latent_examples": multi_count,
         "skipped_prompts": skipped,
         "output_path": str(output_file),
     }
@@ -533,8 +584,8 @@ def main():
         print("TRAINING DATA GENERATION COMPLETE")
         print("=" * 60)
         print(f"  Total examples: {stats['total_examples']}")
-        print(f"  z2 (Step 1) examples: {stats['z2_examples']}")
-        print(f"  z4 (Step 2) examples: {stats['z4_examples']}")
+        print(f"  Single-latent examples: {stats['single_latent_examples']}")
+        print(f"  Multi-latent examples: {stats['multi_latent_examples']}")
         print(f"  Skipped prompts: {stats['skipped_prompts']}")
         print(f"  Saved to: {stats['output_path']}")
         

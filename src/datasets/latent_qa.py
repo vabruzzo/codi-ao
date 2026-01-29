@@ -24,13 +24,15 @@ from tqdm import tqdm
 
 @dataclass
 class LatentQAExample:
-    """A single training example for Latent QA."""
+    """A single training example for Latent QA.
+    
+    Supports both single-latent (one vector) and multi-latent (all 6 vectors) examples.
+    """
     
     # Input
     prompt: str  # The oracle prompt (with placeholders)
-    latent_vector: list[float]  # The latent vector to inject
-    latent_position: int  # Which latent position (0-5)
-    layer_percent: int  # Layer the latent was collected from
+    latent_vectors: list[list[float]]  # List of latent vectors (1 for single, 6 for multi)
+    latent_positions: list[int]  # Which latent positions (e.g., [1] or [0,1,2,3,4,5])
     
     # Target
     question: str  # The question being asked
@@ -39,13 +41,23 @@ class LatentQAExample:
     # Metadata
     source_prompt: str = ""  # Original math problem
     cot_step: str = ""  # The CoT step this latent aligns to
-    question_type: str = ""  # "intermediate_result", "operation", "structure"
+    question_type: str = ""  # "intermediate_result", "operation", "structure", "full_reasoning"
+    is_multi_latent: bool = False  # True if using all 6 vectors
     
     def to_dict(self) -> dict:
         return asdict(self)
     
     @classmethod
     def from_dict(cls, d: dict) -> "LatentQAExample":
+        # Handle backward compatibility with old format
+        if "latent_vector" in d and "latent_vectors" not in d:
+            d["latent_vectors"] = [d.pop("latent_vector")]
+        if "latent_position" in d and "latent_positions" not in d:
+            d["latent_positions"] = [d.pop("latent_position")]
+        if "layer_percent" in d:
+            d.pop("layer_percent")  # Remove deprecated field
+        if "is_multi_latent" not in d:
+            d["is_multi_latent"] = len(d.get("latent_vectors", [])) > 1
         return cls(**d)
 
 
@@ -92,6 +104,32 @@ STRUCTURE_TEMPLATES = [
     "Is this an intermediate computation or a placeholder?",
     "Is this step storing a calculation result?",
     "Does this represent an actual computation?",
+]
+
+# Multi-latent templates (for all 6 vectors)
+MULTI_LATENT_TEMPLATES = [
+    # Full reasoning description
+    "Describe the full reasoning process.",
+    "Summarize all the calculation steps.",
+    "What is the complete chain of reasoning?",
+    "Explain the reasoning from start to finish.",
+    "What calculations were performed in sequence?",
+    
+    # Specific step queries (with all context)
+    "What was calculated in the first step?",
+    "What was the result of the second calculation?",
+    "What is the final computation?",
+    "What intermediate results were computed?",
+    
+    # Verification queries
+    "Are all the calculation steps correct?",
+    "Is there an error in the reasoning?",
+    "Do the intermediate steps lead to the correct answer?",
+    "Is the reasoning chain valid?",
+    
+    # Summary queries
+    "What is the answer and how was it derived?",
+    "Summarize: what numbers were computed at each step?",
 ]
 
 
