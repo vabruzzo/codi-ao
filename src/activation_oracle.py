@@ -57,16 +57,13 @@ class AOConfig:
 def get_introspection_prefix(
     num_positions: int,
     placeholder_token: str = DEFAULT_PLACEHOLDER_TOKEN,
-    prefix_style: str = "reasoning",
+    layer_percent: int = 50,
 ) -> str:
     """
     Create the introspection prefix with placeholder tokens.
 
-    Format (reasoning style):
-        Reasoning:{placeholder}{placeholder}...
-    
-    Format (steps style, for multi-latent):
-        Steps:{placeholder}{placeholder}...
+    Format:
+        Layer {layer_percent}%:{placeholder}{placeholder}...
 
     The placeholder appears after ":" to ensure stable tokenization
     (tokens at line start can tokenize differently).
@@ -74,16 +71,12 @@ def get_introspection_prefix(
     Args:
         num_positions: Number of placeholder tokens to include
         placeholder_token: Token to use as placeholder (default: " ?")
-        prefix_style: "reasoning" (default) or "steps" for multi-latent
+        layer_percent: Layer percentage for the prefix (default: 50)
 
     Returns:
         Formatted prefix string
     """
-    if prefix_style == "steps":
-        prefix = "Steps:"
-    else:
-        prefix = "Reasoning:"
-    
+    prefix = f"Layer {layer_percent}%:"
     prefix += placeholder_token * num_positions
     prefix += " "  # Space before question
     return prefix
@@ -141,7 +134,7 @@ class AOPrompt:
         question: str,
         activation_vectors: list[torch.Tensor],
         placeholder_token: str = DEFAULT_PLACEHOLDER_TOKEN,
-        multi_latent: bool = False,
+        layer_percent: int = 50,
     ) -> "AOPrompt":
         """
         Create an AO prompt from a question and activation vectors.
@@ -153,21 +146,17 @@ class AOPrompt:
         was customized.
 
         Format:
-            Reasoning:{placeholder}... {question}
-        
-        For multi-latent:
-            Steps:{placeholder}... {question}
+            Layer {layer_percent}%:{placeholder}... {question}
 
         Args:
             question: The question to ask about the activations
             activation_vectors: List of activation tensors to inject
             placeholder_token: Token to use as placeholder (must match AO config!)
-            multi_latent: If True, use "Steps:" prefix for multi-latent questions
+            layer_percent: Layer percentage for the prefix
         """
         num_acts = len(activation_vectors)
-        prefix_style = "steps" if multi_latent else "reasoning"
 
-        prefix = get_introspection_prefix(num_acts, placeholder_token, prefix_style)
+        prefix = get_introspection_prefix(num_acts, placeholder_token, layer_percent)
         text = prefix + question
 
         return cls(
@@ -593,7 +582,7 @@ class ActivationOracle:
         self,
         question: str,
         activation_vectors: list[torch.Tensor],
-        multi_latent: bool = False,
+        layer_percent: int = 50,
     ) -> AOPrompt:
         """
         Create an AOPrompt using this oracle's configured placeholder token.
@@ -604,7 +593,7 @@ class ActivationOracle:
         Args:
             question: The question to ask about the activations
             activation_vectors: List of activation tensors to inject
-            multi_latent: If True, use "Steps:" prefix for multi-latent questions
+            layer_percent: Layer percentage for the prefix
 
         Returns:
             AOPrompt configured for this oracle
@@ -613,7 +602,7 @@ class ActivationOracle:
             question=question,
             activation_vectors=activation_vectors,
             placeholder_token=self.config.placeholder_token,
-            multi_latent=multi_latent,
+            layer_percent=layer_percent,
         )
 
     def forward_with_injection(
@@ -700,31 +689,27 @@ def format_oracle_prompt(
     question: str,
     num_activations: int = 1,
     placeholder_token: str = DEFAULT_PLACEHOLDER_TOKEN,
-    multi_latent: bool = False,
+    layer_percent: int = 50,
 ) -> str:
     """
     Format a prompt for the Activation Oracle.
 
     Format:
-        Reasoning:{placeholder}... {question}
-    
-    For multi-latent (all 6 vectors):
-        Steps:{placeholder}... {question}
+        Layer {layer_percent}%:{placeholder}... {question}
 
     Args:
         question: The question to ask
         num_activations: Number of activation vectors to inject
         placeholder_token: The placeholder token to use
-        multi_latent: If True, use "Steps:" prefix for multi-latent questions
+        layer_percent: Layer percentage for the prefix
 
     Returns:
         Formatted prompt string
     """
-    prefix_style = "steps" if multi_latent else "reasoning"
     prefix = get_introspection_prefix(
         num_activations,
         placeholder_token=placeholder_token,
-        prefix_style=prefix_style,
+        layer_percent=layer_percent,
     )
     return prefix + question
 

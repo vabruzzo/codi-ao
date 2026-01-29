@@ -418,7 +418,6 @@ def generate_training_data(
                 question=question,
                 num_activations=6,
                 placeholder_token=placeholder_token,
-                multi_latent=True,
             )
             
             examples.append({

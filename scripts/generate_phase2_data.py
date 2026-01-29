@@ -138,7 +138,6 @@ def main():
                 question=question,
                 num_activations=6,
                 placeholder_token=placeholder_token,
-                multi_latent=True,
             )
             
             qa_examples.append({
