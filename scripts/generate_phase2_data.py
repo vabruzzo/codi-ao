@@ -33,7 +33,7 @@ def main():
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--qa_ratio", type=float, default=0.16, help="Ratio of QA examples")
+    parser.add_argument("--qa_ratio", type=float, default=0.50, help="Ratio of prompts used for QA (higher because classification generates more per prompt)")
     parser.add_argument("--multi_latent_ratio", type=float, default=0.33, help="Ratio of multi-latent examples in QA")
     args = parser.parse_args()
 
