@@ -28,8 +28,9 @@ def main():
     parser.add_argument("--n_samples", type=int, default=100)
     parser.add_argument("--output", type=str, default="reports/evaluation.json")
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=123)  # Different from training seed (42)
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--fresh_test", action="store_true", help="Generate fresh test prompts (ignore cached)")
     args = parser.parse_args()
     
     print("=" * 60)
@@ -40,16 +41,18 @@ def main():
     torch.manual_seed(args.seed)
     
     # Load test prompts
+    # IMPORTANT: Use different seed than training (42) to ensure held-out test set
     test_path = Path("data/test_prompts.json")
-    if not test_path.exists():
-        print(f"No test prompts found at {test_path}")
-        print("Run scripts/collect_latents.py first to generate test data")
-        
-        # Generate on the fly
-        print("\nGenerating test prompts...")
+    
+    if args.fresh_test or not test_path.exists():
+        print("\nGenerating fresh test prompts (held-out from training)...")
         from scripts.collect_latents import create_synthetic_prompts
         test_prompts = create_synthetic_prompts(args.n_samples, seed=args.seed)
+        print(f"  Generated {len(test_prompts)} prompts with seed={args.seed}")
     else:
+        # WARNING: Cached prompts may overlap with training data
+        print(f"\nLoading cached test prompts from {test_path}")
+        print("  (Use --fresh_test to generate held-out data)")
         with open(test_path) as f:
             test_prompts = json.load(f)
         
