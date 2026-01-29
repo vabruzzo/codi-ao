@@ -194,7 +194,13 @@ class CODI(nn.Module):
         if unexpected:
             print(f"Unexpected keys: {len(unexpected)}")
 
+        # Move to device and convert projection layer to correct dtype
         codi_model.to(device)
+        
+        # Ensure prj layer has same dtype as base model
+        if codi_model.use_prj and codi_model.prj is not None:
+            codi_model.prj.to(dtype=torch_dtype)
+        
         codi_model.eval()
 
         return codi_model
