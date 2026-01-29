@@ -357,6 +357,10 @@ def main():
     z2_matches_and_incorrect = 0
     z2_no_match_and_correct = 0
     z2_no_match_and_incorrect = 0
+    
+    # Track what OTHER tokens appear in top-5 alongside the predicted letter
+    other_tokens_in_top5 = Counter()  # tokens that aren't A-E
+    letter_tokens_in_top5 = Counter() # tokens that ARE A-E (competing choices)
 
     print(f"\nAnalyzing {len(examples)} examples...")
     print("-" * 70)
@@ -509,6 +513,20 @@ def main():
                     break
             
             example_data["predicted_found_in"] = predicted_found
+            
+            # Track what OTHER tokens appear in z2 top-5 (not the predicted letter)
+            for tok, prob in z2_data["top5"]:
+                tok_clean = tok.strip()
+                # Skip the predicted letter itself
+                is_predicted = tok_clean == predicted or tok_clean in [f"{predicted}.", f"{predicted}:", f"{predicted})"]
+                if is_predicted:
+                    continue
+                # Classify as letter or non-letter
+                is_letter = tok_clean in list("ABCDE") or any(tok_clean == f"{L}{p}" for L in "ABCDE" for p in [".", ":", ")"])
+                if is_letter:
+                    letter_tokens_in_top5[tok_clean] += 1
+                else:
+                    other_tokens_in_top5[tok_clean] += 1
 
         # Track eocot position
         if first_eocot_pos:
@@ -621,6 +639,19 @@ def main():
     print(f"      P(correct | z2 matches output):     {p_correct_given_match:.1f}%")
     print(f"      P(correct | z2 doesn't match):      {p_correct_given_no_match:.1f}%")
     print(f"      (baseline accuracy: {n_correct/n_total*100:.1f}%)")
+    
+    # What OTHER tokens appear in z2 top-5?
+    total_other = sum(other_tokens_in_top5.values())
+    total_letters = sum(letter_tokens_in_top5.values())
+    print(f"\n   What else is in z2 top-5 (besides predicted letter)?")
+    print(f"      Other choice letters (A-E): {total_letters} tokens")
+    print(f"      Non-letter tokens:          {total_other} tokens")
+    print(f"\n      Most common NON-LETTER tokens in z2 top-5:")
+    for tok, count in other_tokens_in_top5.most_common(10):
+        print(f"         '{tok}': {count}")
+    print(f"\n      Competing LETTER tokens in z2 top-5:")
+    for tok, count in letter_tokens_in_top5.most_common(10):
+        print(f"         '{tok}': {count}")
 
     # 5. Correct vs Incorrect patterns
     print("\n5. Correct vs Incorrect Predictions:")
