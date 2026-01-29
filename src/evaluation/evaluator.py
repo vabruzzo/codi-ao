@@ -181,14 +181,15 @@ class CODIAOEvaluator:
                 # AO prediction (if available)
                 ao_pred = None
                 ao_correct_flag = None
-                ao_input_prompt = None
+                ao_input_prompt_text = None
                 if self.ao is not None:
                     # Use ao.create_prompt() to ensure placeholder token consistency
-                    ao_input_prompt = self.ao.create_prompt(
+                    ao_prompt_obj = self.ao.create_prompt(
                         question="What is the intermediate calculation result?",
                         activation_vectors=[latent_vec],
                     )
-                    ao_pred = self.ao.generate(ao_input_prompt)
+                    ao_input_prompt_text = ao_prompt_obj.text  # Store just the text
+                    ao_pred = self.ao.generate(ao_prompt_obj)
                     ao_correct_flag = self._check_match(ao_pred, gt)
                 
                 # Linear Probe prediction (if available)
@@ -205,7 +206,7 @@ class CODIAOEvaluator:
                     prompt=prompt[:100] + "...",
                     full_prompt=prompt,
                     ground_truth=gt,
-                    ao_input_prompt=ao_input_prompt,
+                    ao_input_prompt=ao_input_prompt_text,
                     ao_prediction=ao_pred,
                     ao_is_correct=ao_correct_flag,
                     logit_lens_prediction=ll_result.prediction,
