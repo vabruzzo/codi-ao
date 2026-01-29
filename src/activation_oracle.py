@@ -62,9 +62,11 @@ def get_introspection_prefix(
     """
     Create the introspection prefix with placeholder tokens.
 
-    Format matches original AO paper:
-        Layer: {layer}\n
-         ? ? ?...\n
+    Format:
+        Layer {layer}:{placeholder}{placeholder}...
+
+    The placeholder appears after ":" to ensure stable tokenization
+    (tokens at line start can tokenize differently).
 
     Args:
         layer: Layer identifier (int or string like "50%")
@@ -74,9 +76,10 @@ def get_introspection_prefix(
     Returns:
         Formatted prefix string
     """
-    prefix = f"Layer: {layer}\n"
+    # Put placeholders after colon to avoid start-of-line tokenization issues
+    prefix = f"Layer {layer}:"
     prefix += placeholder_token * num_positions
-    prefix += "\n"
+    prefix += " "  # Space before question
     return prefix
 
 
