@@ -104,9 +104,15 @@ STRUCTURE_QUESTIONS = [
 
 
 def format_oracle_prompt(question: str, num_latents: int = 1) -> str:
-    """Format prompt for the Activation Oracle."""
-    placeholders = " ".join(["[LATENT]"] * num_latents)
-    return f"Layer 50%: {placeholders} {question}"
+    """Format prompt for the Activation Oracle.
+    
+    Uses the default placeholder token " ?" (space + question mark).
+    Format: "Layer 50%: ? ? ... ? {question}"
+    """
+    # The placeholder token is " ?" and they are concatenated after ":"
+    # So for 2 latents: "Layer 50%: ? ? {question}"
+    placeholders = " ?" * num_latents
+    return f"Layer 50%:{placeholders} {question}"
 
 
 def generate_qa_from_latents(
