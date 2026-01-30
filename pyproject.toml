@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "wandb>=0.16.0",
     "huggingface-hub>=0.21.0",
+    "matplotlib>=3.10.8",
 ]
 
 [project.optional-dependencies]
