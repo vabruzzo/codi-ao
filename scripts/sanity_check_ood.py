@@ -293,8 +293,15 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
     z4_ao_correct = 0
     z2_ll_correct = 0
     z4_ll_correct = 0
+    codi_correct = 0
     total = 0
     errors = []
+    
+    # Cross-analysis counters
+    latent_ok_codi_ok = 0
+    latent_ok_codi_fail = 0
+    latent_fail_codi_ok = 0
+    latent_fail_codi_fail = 0
     
     question = random.choice(NOVEL_QUESTIONS) if use_novel_questions else TRAINED_QUESTION
     
@@ -303,6 +310,11 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
             prompt=item["prompt"],
             ground_truth_answer=item.get("final_answer", "0"),
         )
+        
+        # Track CODI's final answer correctness
+        codi_is_correct = result.is_correct
+        if codi_is_correct:
+            codi_correct += 1
         
         # Test z2 (step 1)
         z2_latent = result.latent_vectors[1]
@@ -325,6 +337,8 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
         # Test z4 (step 2) if available
         z4_ll_pred = "N/A"
         z4_ao_output = "N/A"
+        z4_ao_ok = True
+        z4_ll_ok = True
         if item.get("step2_result"):
             z4_latent = result.latent_vectors[3]
             
@@ -342,16 +356,26 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
             z4_ao_ok = z4_ao_output == item["step2_result"]
             if z4_ao_ok:
                 z4_ao_correct += 1
-        else:
-            z4_ao_ok = True  # Skip
-            z4_ll_ok = True
         
         total += 1
+        
+        # Cross-analysis: latent correctness (AO) vs CODI correctness
+        latent_ok = z2_ao_ok and z4_ao_ok
+        if codi_is_correct is not None:
+            if latent_ok and codi_is_correct:
+                latent_ok_codi_ok += 1
+            elif latent_ok and not codi_is_correct:
+                latent_ok_codi_fail += 1
+            elif not latent_ok and codi_is_correct:
+                latent_fail_codi_ok += 1
+            else:
+                latent_fail_codi_fail += 1
         
         if not z2_ao_ok or not z4_ao_ok:
             errors.append({
                 "prompt": item["prompt"][:60] + "...",
                 "ood_type": item.get("ood_type", "unknown"),
+                "codi_correct": codi_is_correct,
                 "step1_expected": item["step1_result"],
                 "step1_ao": z2_ao_output,
                 "step1_ll": z2_ll_pred,
@@ -367,8 +391,14 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
         "z4_ao": z4_ao_correct,
         "z2_ll": z2_ll_correct,
         "z4_ll": z4_ll_correct,
+        "codi_correct": codi_correct,
         "total": total,
         "errors": errors,
+        # Cross-analysis
+        "latent_ok_codi_ok": latent_ok_codi_ok,
+        "latent_ok_codi_fail": latent_ok_codi_fail,
+        "latent_fail_codi_ok": latent_fail_codi_ok,
+        "latent_fail_codi_fail": latent_fail_codi_fail,
     }
 
 
@@ -383,14 +413,26 @@ def print_results(name: str, results: dict):
     z4_ao_pct = 100 * results["z4_ao"] / total
     z2_ll_pct = 100 * results["z2_ll"] / total
     z4_ll_pct = 100 * results["z4_ll"] / total
+    codi_pct = 100 * results["codi_correct"] / total
     
     combined_ao = (results["z2_ao"] + results["z4_ao"]) / (total * 2) * 100
     combined_ll = (results["z2_ll"] + results["z4_ll"]) / (total * 2) * 100
     
     print(f"  {name}:")
+    print(f"    CODI final answer: {codi_pct:.1f}%")
     print(f"    z2: AO={z2_ao_pct:.1f}%, LL={z2_ll_pct:.1f}%")
     print(f"    z4: AO={z4_ao_pct:.1f}%, LL={z4_ll_pct:.1f}%")
-    print(f"    Combined: AO={combined_ao:.1f}%, LL={combined_ll:.1f}%")
+    print(f"    Combined latent: AO={combined_ao:.1f}%, LL={combined_ll:.1f}%")
+    
+    # Cross-analysis
+    cross_total = (results["latent_ok_codi_ok"] + results["latent_ok_codi_fail"] + 
+                   results["latent_fail_codi_ok"] + results["latent_fail_codi_fail"])
+    if cross_total > 0:
+        print(f"    Cross-analysis:")
+        print(f"      Latent ✓, CODI ✓: {results['latent_ok_codi_ok']:3d} ({100*results['latent_ok_codi_ok']/cross_total:.1f}%)")
+        print(f"      Latent ✓, CODI ✗: {results['latent_ok_codi_fail']:3d} ({100*results['latent_ok_codi_fail']/cross_total:.1f}%)  <- Right latent, wrong answer!")
+        print(f"      Latent ✗, CODI ✓: {results['latent_fail_codi_ok']:3d} ({100*results['latent_fail_codi_ok']/cross_total:.1f}%)")
+        print(f"      Latent ✗, CODI ✗: {results['latent_fail_codi_fail']:3d} ({100*results['latent_fail_codi_fail']/cross_total:.1f}%)")
     
     return combined_ao
 
@@ -489,17 +531,38 @@ def run_all_ood_tests(n_samples: int = 50, max_val: int = 100, include_gsm8k: bo
     print(f"{'='*70}\n")
     
     baseline_ao = (all_results["baseline"]["z2_ao"] + all_results["baseline"]["z4_ao"]) / (all_results["baseline"]["total"] * 2) * 100
+    baseline_codi = 100 * all_results["baseline"]["codi_correct"] / all_results["baseline"]["total"]
     
-    print(f"{'Test':<25} {'AO Accuracy':<15} {'vs Baseline':<15}")
-    print(f"{'-'*55}")
+    print(f"{'Test':<25} {'CODI Final':<12} {'AO Latent':<12} {'vs Baseline':<12}")
+    print(f"{'-'*65}")
     
     for name, results in all_results.items():
         if results["total"] == 0:
             continue
         ao_acc = (results["z2_ao"] + results["z4_ao"]) / (results["total"] * 2) * 100
+        codi_acc = 100 * results["codi_correct"] / results["total"]
         diff = ao_acc - baseline_ao
         diff_str = f"{diff:+.1f}%" if name != "baseline" else "-"
-        print(f"{name:<25} {ao_acc:.1f}%{'':<8} {diff_str}")
+        print(f"{name:<25} {codi_acc:.1f}%{'':<5} {ao_acc:.1f}%{'':<5} {diff_str}")
+    
+    # Cross-analysis summary
+    print(f"\n{'='*70}")
+    print("CROSS-ANALYSIS SUMMARY (Latent correct vs CODI correct)")
+    print(f"{'='*70}\n")
+    
+    print(f"{'Test':<20} {'L✓C✓':<10} {'L✓C✗':<10} {'L✗C✓':<10} {'L✗C✗':<10}")
+    print(f"{'-'*60}")
+    for name, results in all_results.items():
+        if results["total"] == 0:
+            continue
+        t = results["total"]
+        lok_cok = results["latent_ok_codi_ok"]
+        lok_cf = results["latent_ok_codi_fail"]
+        lf_cok = results["latent_fail_codi_ok"]
+        lf_cf = results["latent_fail_codi_fail"]
+        print(f"{name:<20} {lok_cok:>3} ({100*lok_cok/t:4.1f}%) {lok_cf:>3} ({100*lok_cf/t:4.1f}%) {lf_cok:>3} ({100*lf_cok/t:4.1f}%) {lf_cf:>3} ({100*lf_cf/t:4.1f}%)")
+    
+    print("\n  L✓C✗ = Latent has correct intermediate, but CODI outputs wrong final answer (interesting!)")
     
     # Show sample errors
     print(f"\n{'='*70}")
@@ -510,7 +573,8 @@ def run_all_ood_tests(n_samples: int = 50, max_val: int = 100, include_gsm8k: bo
         if results["errors"]:
             print(f"\n{name}:")
             for err in results["errors"][:5]:
-                print(f"  [{err['ood_type']}] step1: exp={err['step1_expected']}, ao={err['step1_ao']} {'✓' if err['z2_ao_ok'] else '✗'}")
+                codi_status = "CODI✓" if err.get('codi_correct') else "CODI✗"
+                print(f"  [{err['ood_type']}] {codi_status} | step1: exp={err['step1_expected']}, ao={err['step1_ao']} {'✓' if err['z2_ao_ok'] else '✗'}")
                 print(f"              step2: exp={err['step2_expected']}, ao={err['step2_ao']} {'✓' if err['z4_ao_ok'] else '✗'}")
 
 

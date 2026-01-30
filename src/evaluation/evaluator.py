@@ -26,6 +26,10 @@ class EvaluationResult:
     full_prompt: str = ""  # Full original CODI prompt
     ground_truth: str = ""
     
+    # CODI's final answer
+    codi_final_answer: Optional[str] = None
+    codi_is_correct: Optional[bool] = None
+    
     # AO input/output
     ao_input_prompt: Optional[str] = None  # Full prompt sent to AO
     ao_prediction: Optional[str] = None  # Raw AO output
@@ -53,6 +57,11 @@ class EvaluationSummary:
     # Overall metrics
     total_examples: int = 0
     
+    # CODI final answer metrics
+    codi_accuracy: float = 0.0
+    codi_correct: int = 0
+    codi_total: int = 0  # May differ from total_examples if some don't have final answer GT
+    
     # AO metrics
     ao_accuracy: float = 0.0
     ao_correct: int = 0
@@ -69,6 +78,12 @@ class EvaluationSummary:
     z4_ao_accuracy: float = 0.0
     z2_logit_lens_accuracy: float = 0.0
     z4_logit_lens_accuracy: float = 0.0
+    
+    # Cross-analysis: latent correct vs CODI correct
+    latent_correct_codi_correct: int = 0  # Both latent and CODI right
+    latent_correct_codi_wrong: int = 0    # Latent right, CODI wrong (interesting!)
+    latent_wrong_codi_correct: int = 0    # Latent wrong, CODI right
+    latent_wrong_codi_wrong: int = 0      # Both wrong
     
     # Detailed results
     results: list[EvaluationResult] = field(default_factory=list)
@@ -151,8 +166,14 @@ class CODIAOEvaluator:
         for item in iterator:
             prompt = item["prompt"]
             
+            # Get ground truth final answer for CODI correctness check
+            final_answer_gt = str(item.get("final_answer", ""))
+            
             # Collect latent vectors
-            codi_result = self.codi_wrapper.collect_latents(prompt)
+            codi_result = self.codi_wrapper.collect_latents(
+                prompt, 
+                ground_truth_answer=final_answer_gt if final_answer_gt else None
+            )
             
             if len(codi_result.latent_vectors) < max(positions) + 1:
                 continue
@@ -201,11 +222,13 @@ class CODIAOEvaluator:
                     lp_result.ground_truth = gt
                     lp_correct_flag = lp_result._check_correct()
                 
-                # Record result
+                # Record result with CODI's final answer info
                 eval_result = EvaluationResult(
                     prompt=prompt[:100] + "...",
                     full_prompt=prompt,
                     ground_truth=gt,
+                    codi_final_answer=codi_result.predicted_answer,
+                    codi_is_correct=codi_result.is_correct,
                     ao_input_prompt=ao_input_prompt_text,
                     ao_prediction=ao_pred,
                     ao_is_correct=ao_correct_flag,
@@ -234,9 +257,42 @@ class CODIAOEvaluator:
                     lp_correct["total"] += 1
                     lp_correct[pos] += 1
         
+        # Compute CODI correctness and cross-analysis
+        codi_correct_count = 0
+        codi_total_count = 0
+        latent_correct_codi_correct = 0
+        latent_correct_codi_wrong = 0
+        latent_wrong_codi_correct = 0
+        latent_wrong_codi_wrong = 0
+        
+        # Track unique prompts to avoid double-counting CODI accuracy
+        seen_prompts = set()
+        for r in results:
+            # Cross-analysis (per latent)
+            latent_correct = r.ao_is_correct if r.ao_is_correct is not None else r.logit_lens_is_correct
+            if latent_correct is not None and r.codi_is_correct is not None:
+                if latent_correct and r.codi_is_correct:
+                    latent_correct_codi_correct += 1
+                elif latent_correct and not r.codi_is_correct:
+                    latent_correct_codi_wrong += 1
+                elif not latent_correct and r.codi_is_correct:
+                    latent_wrong_codi_correct += 1
+                else:
+                    latent_wrong_codi_wrong += 1
+            
+            # CODI accuracy (per unique prompt)
+            if r.full_prompt not in seen_prompts and r.codi_is_correct is not None:
+                seen_prompts.add(r.full_prompt)
+                codi_total_count += 1
+                if r.codi_is_correct:
+                    codi_correct_count += 1
+        
         # Compute summary
         summary = EvaluationSummary(
             total_examples=totals["total"],
+            codi_accuracy=codi_correct_count / codi_total_count if codi_total_count > 0 else 0,
+            codi_correct=codi_correct_count,
+            codi_total=codi_total_count,
             ao_accuracy=ao_correct["total"] / totals["total"] if totals["total"] > 0 else 0,
             ao_correct=ao_correct["total"],
             logit_lens_accuracy=ll_correct["total"] / totals["total"] if totals["total"] > 0 else 0,
@@ -247,6 +303,10 @@ class CODIAOEvaluator:
             z4_ao_accuracy=ao_correct[3] / totals[3] if totals[3] > 0 else 0,
             z2_logit_lens_accuracy=ll_correct[1] / totals[1] if totals[1] > 0 else 0,
             z4_logit_lens_accuracy=ll_correct[3] / totals[3] if totals[3] > 0 else 0,
+            latent_correct_codi_correct=latent_correct_codi_correct,
+            latent_correct_codi_wrong=latent_correct_codi_wrong,
+            latent_wrong_codi_correct=latent_wrong_codi_correct,
+            latent_wrong_codi_wrong=latent_wrong_codi_wrong,
             results=results,
         )
         
@@ -570,9 +630,16 @@ class CODIAOEvaluator:
         print("\n" + "=" * 60)
         print("EVALUATION SUMMARY")
         print("=" * 60)
-        print(f"Total examples: {summary.total_examples}")
+        print(f"Total latent examples: {summary.total_examples}")
         print()
-        print("Overall Accuracy:")
+        
+        # CODI Final Answer Accuracy
+        if summary.codi_total > 0:
+            print("CODI Final Answer:")
+            print(f"  Accuracy:     {summary.codi_accuracy:.2%} ({summary.codi_correct}/{summary.codi_total})")
+            print()
+        
+        print("Latent Extraction Accuracy:")
         print(f"  Logit Lens:   {summary.logit_lens_accuracy:.2%} ({summary.logit_lens_correct}/{summary.total_examples})")
         if summary.ao_correct > 0 or summary.ao_accuracy > 0:
             print(f"  AO:           {summary.ao_accuracy:.2%} ({summary.ao_correct}/{summary.total_examples})")
@@ -585,6 +652,18 @@ class CODIAOEvaluator:
         if summary.z2_ao_accuracy > 0 or summary.z4_ao_accuracy > 0:
             print(f"  z2 AO:         {summary.z2_ao_accuracy:.2%}")
             print(f"  z4 AO:         {summary.z4_ao_accuracy:.2%}")
+        
+        # Cross-analysis
+        cross_total = (summary.latent_correct_codi_correct + summary.latent_correct_codi_wrong + 
+                       summary.latent_wrong_codi_correct + summary.latent_wrong_codi_wrong)
+        if cross_total > 0:
+            print()
+            print("Cross-Analysis (Latent vs CODI correctness):")
+            print(f"  Latent ✓, CODI ✓: {summary.latent_correct_codi_correct:4d} ({100*summary.latent_correct_codi_correct/cross_total:.1f}%)")
+            print(f"  Latent ✓, CODI ✗: {summary.latent_correct_codi_wrong:4d} ({100*summary.latent_correct_codi_wrong/cross_total:.1f}%)  <- Interesting cases!")
+            print(f"  Latent ✗, CODI ✓: {summary.latent_wrong_codi_correct:4d} ({100*summary.latent_wrong_codi_correct/cross_total:.1f}%)")
+            print(f"  Latent ✗, CODI ✗: {summary.latent_wrong_codi_wrong:4d} ({100*summary.latent_wrong_codi_wrong/cross_total:.1f}%)")
+        
         print("=" * 60)
     
     def _print_all_examples(self, summary: EvaluationSummary):
