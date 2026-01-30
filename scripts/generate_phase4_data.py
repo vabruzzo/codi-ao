@@ -515,6 +515,9 @@ def main():
     print(f"\nGenerated {len(gsm8k_examples)} GSM8k examples")
     
     print("\nGenerating synthetic examples...")
+    # Shuffle synthetic problems BEFORE slicing to get a mix of 1-10 and 1-100
+    random.seed(args.seed + 1)
+    random.shuffle(synthetic_problems)
     synthetic_examples = collect_latents_and_generate(
         wrapper,
         synthetic_problems[:needed_synthetic * 2],
