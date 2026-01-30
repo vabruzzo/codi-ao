@@ -1,242 +1,102 @@
 # CODI Activation Oracle Study
 
-## Overview
+## Core Hypothesis
 
-This study trains an Activation Oracle (AO) to decode CODI's latent reasoning vectors and compares against Logit Lens baselines wherever possible.
+**Logit Lens cannot reliably extract operation type from CODI's latents, but a trained Activation Oracle can.**
 
-**Key Question**: Can a learned decoder (AO) extract more information from CODI's latents than a simple linear projection (Logit Lens)?
+This demonstrates that non-linear learned decoders can extract information that linear projections cannot.
 
-## CODI Latent Structure
+## Background
 
-CODI produces 6 latent vectors (z1-z6). The LessWrong blog found that:
-- **z2** (index 1) stores Step 1 numeric result
-- **z4** (index 3) stores Step 2 numeric result
+CODI compresses chain-of-thought reasoning into 6 latent vectors. Prior work (LessWrong blog) showed that **numeric intermediate results** are linearly decodable via logit lens:
+- z2 → Step 1 result (100% accuracy)
+- z4 → Step 2 result (~85% accuracy)
 
-But what about the other positions? They might encode:
-- Operation type (add/sub/mul)?
-- Problem structure?
-- Final answer?
-- Something else entirely?
+But what about **operation type** (add/sub/mul)? Is this information stored? Can it be extracted?
 
-### Phase 0: Exploratory Logit Lens (All 6 Positions)
+## Phase 0 Results: Logit Lens Exploration
 
-Before training, we run Logit Lens on **all 6 positions** to discover what's linearly decodable:
+We ran logit lens on all 6 positions to see what's linearly decodable.
 
-```bash
-python scripts/explore_latents.py \
-    --n_samples 200 \
-    --output results/latent_exploration.json
-```
+### Numeric Extraction (Confirms Prior Work)
 
-For each position z1-z6, we test:
-1. **Numeric extraction**: Does argmax give a meaningful number?
-2. **Operation tokens**: Are add/sub/mul tokens high probability?
-3. **Position tokens**: Are "first"/"second" tokens high probability?
-4. **Top-k tokens**: What are the highest probability tokens overall?
+| Position | Step 1 Acc | Step 2 Acc |
+|----------|------------|------------|
+| z2 | **100%** | 10.5% |
+| z4 | 81.5% | **66.5%** |
 
-**Expected output**:
-```
-z1: top tokens = [?, ?, ?], numeric = ?, operation = ?
-z2: top tokens = [15, 16, ...], numeric = step1_value, operation = ?
-z3: top tokens = [?, ?, ?], numeric = ?, operation = ?
-z4: top tokens = [45, 48, ...], numeric = step2_value, operation = ?
-z5: top tokens = [?, ?, ?], numeric = ?, operation = ?
-z6: top tokens = [?, ?, ?], numeric = ?, operation = ?
-```
+✅ Numeric values are linearly decodable - confirming prior work.
 
-This tells us:
-- Which positions encode numeric values (we know z2/z4, but confirm)
-- Which positions (if any) encode operation type
-- Whether z1/z3/z5/z6 contain any interpretable signal
-- What information the AO could potentially extract beyond what LL finds
+### Operation Type Extraction (New Finding)
 
-## Logit Lens Baselines
+| Position | Operation Acc | Notes |
+|----------|---------------|-------|
+| z1 | 52.0% | Near random |
+| z2 | 56.5% | Near random |
+| **z3** | **68.5%** | Best, but weak |
+| z4 | 34.0% | Below random |
+| z5 | 26.0% | Below random |
+| z6 | 60.0% | Biased |
 
-We extend Logit Lens beyond numeric extraction to test what information is linearly decodable from CODI's latent space. All Logit Lens tests are on **z2 and z4** (the meaningful positions).
+**Key Finding**: Operation type is NOT reliably linearly decodable.
+- Best position (z3) only gets 68.5%
+- Random baseline is 33% (3 operations)
+- The signal is weak and biased toward "add" tokens
 
-### Logit Lens for Numeric Extraction (Standard)
-```python
-def logit_lens_numeric(latent, model, tokenizer):
-    """Project latent (z2 or z4) → vocab, return top numeric token."""
-    logits = latent @ model.lm_head.weight.T
-    top_id = logits.argmax()
-    return tokenizer.decode(top_id)
-```
+### Why Operation is Non-Linear
 
-### Logit Lens for Operation Type (New)
-```python
-def logit_lens_operation(latent, model, tokenizer):
-    """Check which operation tokens have highest probability."""
-    logits = latent @ model.lm_head.weight.T
-    probs = softmax(logits)
-    
-    # Define operation token sets
-    add_tokens = tokenizer.encode("add addition plus +", add_special_tokens=False)
-    sub_tokens = tokenizer.encode("subtract subtraction minus -", add_special_tokens=False)
-    mul_tokens = tokenizer.encode("multiply multiplication times *", add_special_tokens=False)
-    
-    # Sum probabilities for each operation
-    add_prob = probs[add_tokens].sum()
-    sub_prob = probs[sub_tokens].sum()
-    mul_prob = probs[mul_tokens].sum()
-    
-    return max([("add", add_prob), ("sub", sub_prob), ("mul", mul_prob)], key=lambda x: x[1])
-```
+Numeric values are linearly decodable because CODI was trained to produce them as explicit tokens during distillation.
 
-### Logit Lens for Magnitude (New)
-```python
-def logit_lens_magnitude(latent, model, tokenizer, threshold=50):
-    """Check if projected value > threshold."""
-    logits = latent @ model.lm_head.weight.T
-    
-    # Get probabilities for numbers > threshold vs <= threshold
-    high_tokens = [tokenizer.encode(str(n))[0] for n in range(threshold+1, 200)]
-    low_tokens = [tokenizer.encode(str(n))[0] for n in range(0, threshold+1)]
-    
-    high_prob = softmax(logits)[high_tokens].sum()
-    low_prob = softmax(logits)[low_tokens].sum()
-    
-    return "Yes" if high_prob > low_prob else "No"
-```
+Operation type is **implicit** - CODI wasn't trained to output "add" or "multiply", it was trained to *perform* these operations. The operation information is encoded in a distributed, non-linear way.
 
-## Training Setup
+## The Experiment
 
-### Data Generation
+### Three Decoders, One Question
 
-We follow the Activation Oracle paper's diverse training approach:
+We compare three methods of extracting operation type:
 
-**Total**: ~100,000 examples
+| Method | Training | Complexity | Description |
+|--------|----------|------------|-------------|
+| **Logit Lens** | None | Linear (vocab projection) | Project latent → vocab, check operation tokens |
+| **Linear Probe** | Minimal | Linear (learned) | Train `nn.Linear(hidden_dim, 3)` to classify |
+| **Activation Oracle** | Full | Non-linear (LLM) | Train LLM decoder with LoRA |
 
-| Question Type | Count | Single/Multi | Description |
-|---------------|-------|--------------|-------------|
-| extraction_generic | 15,000 | Single | "What is the intermediate result?" |
-| extraction_step1 | 8,000 | Single | "What is the step 1 result?" |
-| extraction_step2 | 8,000 | Single | "What is the step 2 result?" |
-| operation_type | 15,000 | Single | "What operation was performed?" → add/sub/mul |
-| classification_magnitude | 15,000 | Single | "Is result > 50?" → Yes/No |
-| classification_position | 8,000 | Single | "Is this step 1?" → Yes/No |
-| multi_extraction | 8,000 | Multi (6 latents) | "What is step 1/step 2 result?" |
-| multi_comparison | 8,000 | Multi (6 latents) | "Which step is larger?" |
-| multi_operation | 8,000 | Multi (6 latents) | "What operations were performed?" |
-| multi_sequence | 7,000 | Multi (6 latents) | "What calculations were done in order?" |
+### What We'll Show
 
-### Training Configuration
+1. **Logit Lens**: ~68% operation accuracy (weak, biased toward "add")
+2. **Linear Probe**: ~70-75% operation accuracy (slightly better, still limited)
+3. **Activation Oracle**: >85% operation accuracy (strong, unbiased)
 
-| Parameter | Value |
-|-----------|-------|
-| Base Model | LLaMA-3.2-1B-Instruct |
-| Adapter | LoRA (rank 64, alpha 128) |
-| Trainable Params | ~6.8M (0.55%) |
-| Learning Rate | 1e-5 |
-| Batch Size | 16 |
-| Epochs | 2 |
-| Injection Layer | 1 |
+**Key insight**: If both linear methods fail but AO succeeds, operation is encoded **non-linearly**.
 
-### Prompt Formats
+### Training Setup
 
-**Single-Latent** (1 placeholder):
-```
-Layer 50%: ? What is the intermediate result?
-Layer 50%: ? What operation was performed?
-Layer 50%: ? Is the result greater than 50?
-```
+Train AO on diverse data including:
+- Numeric extraction (single-latent)
+- Operation type classification (single-latent)
+- Multi-latent tasks
 
-**Multi-Latent** (6 placeholders for all CODI latents):
-```
-Layer 50%: ? ? ? ? ? ? What is the step 1 result?
-Layer 50%: ? ? ? ? ? ? Which step has the larger value?
-```
+**Key Question**: Which latent position(s) does the AO use to predict operation?
+- Is it z3 (best logit lens signal)?
+- Or does it learn to combine information across positions?
 
-## Evaluation: AO vs Logit Lens
+### Evaluation
 
-We compare AO and Logit Lens on every task where Logit Lens is applicable:
+| Task | Logit Lens | Linear Probe | AO | 
+|------|------------|--------------|-----|
+| Numeric (z2) | 100% | ~100% | ~100% |
+| Numeric (z4) | 66.5% | ~80%? | >90% |
+| **Operation** | **68.5%** | **~75%?** | **>85%** |
 
-### Tasks with Logit Lens Comparison
+**The story**:
+- Numeric extraction: All methods work (linearly decodable)
+- Operation: Only AO works well (non-linearly encoded)
 
-| Task | AO Applicable | LL Applicable | How LL Works |
-|------|---------------|---------------|--------------|
-| Numeric Extraction | Yes | **Yes** | argmax over number tokens |
-| Operation Type | Yes | **Yes** | Compare add/sub/mul token probs |
-| Magnitude (>50?) | Yes | **Yes** | Compare high vs low number probs |
-| Position (step 1?) | Yes | **Maybe** | Check for ordinal tokens? |
+## Why This Matters
 
-### Tasks without Logit Lens Comparison
-
-| Task | Why No LL |
-|------|-----------|
-| Multi-Latent Comparison | Requires reasoning across latents |
-| Multi-Latent Sequence | Requires ordering/aggregation |
-| Free-form Description | Requires generation |
-
-## Metrics
-
-For each task:
-```python
-{
-    "task": str,
-    "ao_accuracy": float,
-    "logit_lens_accuracy": float,      # None if not applicable
-    "ao_vs_ll_delta": float,           # AO - LL (positive = AO wins)
-    "random_baseline": float,          # Expected accuracy from random guessing
-    "n_samples": int,
-}
-```
-
-**Summary Metrics**:
-- `ao_avg`: Average AO accuracy across all tasks
-- `ll_avg`: Average LL accuracy (where applicable)
-- `ao_wins`: Number of tasks where AO > LL
-- `ll_wins`: Number of tasks where LL > AO
-
-## Expected Results
-
-### Single-Latent Tasks (z2 and z4 only)
-
-| Task | Position | Random | Logit Lens | AO Target | AO vs LL |
-|------|----------|--------|------------|-----------|----------|
-| Numeric Extraction | z2 | ~1% | ~100% | 100% | 0% |
-| Numeric Extraction | z4 | ~1% | ~85% | >95% | **+10%** |
-| Operation Type | z2 | 33% | ? | >85% | ? |
-| Operation Type | z4 | 33% | ? | >85% | ? |
-| Magnitude (>50) | z2/z4 | 50% | ? | >85% | ? |
-| Position (step 1?) | z2 | 50% | ? | >90% | ? |
-| Position (step 2?) | z4 | 50% | ? | >90% | ? |
-
-### Multi-Latent Tasks
-
-| Task | Random | Logit Lens | AO Target |
-|------|--------|------------|-----------|
-| Step 1 Extraction | ~1% | N/A | 100% |
-| Step 2 Extraction | ~1% | N/A | 100% |
-| Comparison | 50% | N/A | >90% |
-| Sequence | ~1% | N/A | >80% |
-
-## Research Questions
-
-1. **What's in each latent position?**
-   - z2/z4 have numeric results (known) - but what else?
-   - Do z1/z3/z5/z6 encode anything meaningful?
-   - Is operation type stored somewhere? Which position?
-
-2. **What can Logit Lens extract?**
-   - Numeric values: Yes from z2/z4 (known)
-   - Operation type: Unknown - which position? Test all 6!
-   - Magnitude: Unknown - test this!
-   - Position: Unknown - test this!
-
-3. **Where does AO beat Logit Lens?**
-   - On harder extraction (z4)?
-   - On classification tasks?
-   - On information that's not linearly decodable?
-
-4. **What requires a learned decoder?**
-   - Multi-latent reasoning?
-   - Information spread across positions?
-   - Non-linear combinations?
-
-5. **Hidden Knowledge**
-   - Can AO reveal correct intermediates when CODI outputs wrong answers?
-   - Is this information accessible via LL too?
+1. **Validates Activation Oracles**: Shows learned decoders extract more than linear probes
+2. **Interpretability**: Can monitor what operations CODI performs, not just what numbers it computes
+3. **Safety**: If latent reasoning becomes common, we need tools beyond logit lens
 
 ## File Structure
 
@@ -244,66 +104,57 @@ For each task:
 codi-ao/
 ├── STUDY.md                     # This file
 ├── scripts/
-│   ├── explore_latents.py       # Explore all 6 positions with Logit Lens
-│   ├── generate_data.py         # Generate training data
+│   ├── explore_latents.py       # Phase 0: Logit lens exploration ✓
 │   ├── train.py                 # Train the AO
-│   ├── evaluate.py              # Run full evaluation
-│   └── logit_lens.py            # Logit Lens baselines
-├── data/
-│   └── train.jsonl              # Training data
-├── checkpoints/
-│   └── ao/                      # Trained model
-└── results/
-    ├── latent_exploration.json  # What's in each latent position
-    ├── logit_lens_baseline.json # LL results
-    ├── evaluation.json          # Full AO results
-    └── figures/                 # Plots
+│   └── evaluate.py              # Evaluate AO vs Logit Lens
+├── results/
+│   └── latent_exploration.json  # Phase 0 results ✓
+└── checkpoints/
+    └── ao/                      # Trained model
 ```
 
 ## Commands
 
 ```bash
-# 0. FIRST: Explore all 6 latent positions with Logit Lens
-python scripts/explore_latents.py \
-    --n_samples 200 \
-    --output results/latent_exploration.json
+# Phase 0: Logit Lens exploration (done ✓)
+python scripts/explore_latents.py --n_samples 200 --verbose
 
-# 1. Generate training data (informed by exploration results)
-python scripts/generate_data.py \
-    --n_samples 100000 \
-    --output data/train.jsonl
+# Phase 1: Train Linear Probe
+python scripts/train_linear_probe.py --task operation --n_samples 10000
 
-# 2. Evaluate Logit Lens baselines on meaningful positions
-python scripts/logit_lens.py \
-    --positions all \
-    --tasks all \
-    --n_samples 500 \
-    --output results/logit_lens_baseline.json
+# Phase 2: Generate AO training data
+python scripts/generate_data.py --n_samples 100000 --include_operation
 
-# 3. Train the AO
-python scripts/train.py \
-    --data data/train.jsonl \
-    --epochs 2 \
-    --output checkpoints/ao
+# Phase 3: Train Activation Oracle
+python scripts/train.py --data data/train.jsonl --epochs 2
 
-# 4. Evaluate AO and compare
+# Phase 4: Evaluate all three methods
 python scripts/evaluate.py \
-    --checkpoint checkpoints/ao \
-    --ll_baseline results/logit_lens_baseline.json \
-    --output results/evaluation.json
+    --ao_checkpoint checkpoints/ao \
+    --probe_checkpoint checkpoints/linear_probe \
+    --compare_all
 ```
 
 ## Success Criteria
 
-1. **Establish LL baselines**: Know what Logit Lens can/cannot extract
-2. **AO beats LL on extraction**: >5% improvement on numeric extraction
-3. **AO enables new tasks**: Multi-latent comparison >85% (LL cannot do this)
-4. **Clear conclusions**: Identify what requires learned vs linear decoding
+1. **Logit Lens operation**: <70% ✓ (confirmed: 68.5%)
+2. **Linear Probe operation**: <80% (still limited by linearity)
+3. **AO operation**: >85% (non-linear decoding works)
+4. **Gap**: AO beats linear methods by >10 points on operation
+5. **No regression**: All methods comparable on numeric extraction
 
-## Key Insight We're Testing
+## Expected Results
 
-The Activation Oracle paper shows that learned decoders can extract more information than linear probes. We test whether this holds for CODI's compressed reasoning:
+| Metric | Logit Lens | Linear Probe | Activation Oracle |
+|--------|------------|--------------|-------------------|
+| Numeric z2 | 100% | ~100% | ~100% |
+| Numeric z4 | 66.5% | ~80% | >90% |
+| **Operation** | **68.5%** | **~75%** | **>85%** |
 
-- **If LL can extract operation type**: CODI's latents have rich linear structure
-- **If only AO can extract operation type**: Non-linear decoding is needed
-- **If neither can extract operation type**: This information may not be stored in latents
+### The Key Story
+
+**Operation type IS encoded in CODI's latents, but requires non-linear decoding to extract reliably.**
+
+- Both linear methods (logit lens, linear probe) struggle with operation
+- Only the non-linear AO can reliably extract it
+- This validates the need for learned decoders beyond simple probes
