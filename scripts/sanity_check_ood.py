@@ -24,7 +24,7 @@ import torch
 from tqdm import tqdm
 
 from src.codi_wrapper import CODIWrapper
-from src.activation_oracle import ActivationOracle, format_oracle_prompt
+from src.activation_oracle import ActivationOracle
 
 
 # ============================================================================
@@ -307,6 +307,7 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
         # Test z2 (step 1)
         z2_latent = result.latent_vectors[1]
         
+        # Logit lens for z2
         z2_ll_result = wrapper.logit_lens(z2_latent)
         z2_ll_pred, _ = z2_ll_result.get_top1_at_final_layer()
         z2_ll_pred = z2_ll_pred.strip() if z2_ll_pred else ""
@@ -314,16 +315,20 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
         if z2_ll_ok:
             z2_ll_correct += 1
         
-        z2_ao_prompt = format_oracle_prompt(question=question, num_activations=1)
-        z2_ao_output = ao.query(z2_ao_prompt, [z2_latent])
-        z2_ao_ok = z2_ao_output.strip() == item["step1_result"]
+        # AO for z2
+        z2_ao_prompt = ao.create_prompt(question=question, activation_vectors=[z2_latent])
+        z2_ao_output = ao.generate(z2_ao_prompt).strip()
+        z2_ao_ok = z2_ao_output == item["step1_result"]
         if z2_ao_ok:
             z2_ao_correct += 1
         
         # Test z4 (step 2) if available
+        z4_ll_pred = "N/A"
+        z4_ao_output = "N/A"
         if item.get("step2_result"):
             z4_latent = result.latent_vectors[3]
             
+            # Logit lens for z4
             z4_ll_result = wrapper.logit_lens(z4_latent)
             z4_ll_pred, _ = z4_ll_result.get_top1_at_final_layer()
             z4_ll_pred = z4_ll_pred.strip() if z4_ll_pred else ""
@@ -331,16 +336,15 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
             if z4_ll_ok:
                 z4_ll_correct += 1
             
-            z4_ao_prompt = format_oracle_prompt(question=question, num_activations=1)
-            z4_ao_output = ao.query(z4_ao_prompt, [z4_latent])
-            z4_ao_ok = z4_ao_output.strip() == item["step2_result"]
+            # AO for z4
+            z4_ao_prompt = ao.create_prompt(question=question, activation_vectors=[z4_latent])
+            z4_ao_output = ao.generate(z4_ao_prompt).strip()
+            z4_ao_ok = z4_ao_output == item["step2_result"]
             if z4_ao_ok:
                 z4_ao_correct += 1
         else:
             z4_ao_ok = True  # Skip
             z4_ll_ok = True
-            z4_ll_pred = "N/A"
-            z4_ao_output = "N/A"
         
         total += 1
         
@@ -349,10 +353,10 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
                 "prompt": item["prompt"][:60] + "...",
                 "ood_type": item.get("ood_type", "unknown"),
                 "step1_expected": item["step1_result"],
-                "step1_ao": z2_ao_output.strip(),
+                "step1_ao": z2_ao_output,
                 "step1_ll": z2_ll_pred,
                 "step2_expected": item.get("step2_result", "N/A"),
-                "step2_ao": z4_ao_output.strip() if item.get("step2_result") else "N/A",
+                "step2_ao": z4_ao_output if item.get("step2_result") else "N/A",
                 "step2_ll": z4_ll_pred if item.get("step2_result") else "N/A",
                 "z2_ao_ok": z2_ao_ok,
                 "z4_ao_ok": z4_ao_ok,
