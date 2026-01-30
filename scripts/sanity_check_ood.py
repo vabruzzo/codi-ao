@@ -449,7 +449,7 @@ def print_results(name: str, results: dict):
     return combined_ao
 
 
-def run_all_ood_tests(n_samples: int = 50, max_val: int = 100, include_gsm8k: bool = False):
+def run_all_ood_tests(n_samples: int = 50, max_val: int = 100, include_gsm8k: bool = False, ao_path: str = "checkpoints/ao"):
     """Run all OOD tests."""
     
     print(f"\n{'='*70}")
@@ -460,8 +460,8 @@ def run_all_ood_tests(n_samples: int = 50, max_val: int = 100, include_gsm8k: bo
     print("Loading CODI model...")
     wrapper = CODIWrapper.from_pretrained()
     
-    print("Loading Activation Oracle...")
-    ao = ActivationOracle.from_pretrained(lora_path="checkpoints/ao")
+    print(f"Loading Activation Oracle from {ao_path}...")
+    ao = ActivationOracle.from_pretrained(lora_path=ao_path)
     
     all_results = {}
     
@@ -595,10 +595,12 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples", type=int, default=50, help="Number of test prompts per test")
     parser.add_argument("--max_val", type=int, default=100, help="Maximum number for large number test")
     parser.add_argument("--gsm8k", action="store_true", help="Include GSM8k test (requires datasets library)")
+    parser.add_argument("--ao_path", type=str, default="checkpoints/ao", help="Path to AO checkpoint")
     args = parser.parse_args()
     
     run_all_ood_tests(
         n_samples=args.n_samples,
         max_val=args.max_val,
         include_gsm8k=args.gsm8k,
+        ao_path=args.ao_path,
     )
