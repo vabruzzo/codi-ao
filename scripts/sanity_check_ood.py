@@ -305,11 +305,23 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
     
     question = random.choice(NOVEL_QUESTIONS) if use_novel_questions else TRAINED_QUESTION
     
+    # Debug: show first few CODI outputs
+    debug_count = 0
+    
     for item in tqdm(prompts, desc=f"  {test_name}"):
         result = wrapper.collect_latents(
             prompt=item["prompt"],
             ground_truth_answer=item.get("final_answer", "0"),
         )
+        
+        # Debug: print first 3 CODI outputs to verify extraction
+        if debug_count < 3:
+            # Extract just the generated part (after the prompt)
+            full_output = result.predicted_answer or ""
+            prompt_text = item["prompt"]
+            generated = full_output[len(prompt_text):].strip() if full_output.startswith(prompt_text) else full_output
+            tqdm.write(f"    DEBUG: GT={item.get('final_answer')}, CODI output='{generated[:50]}', is_correct={result.is_correct}")
+            debug_count += 1
         
         # Track CODI's final answer correctness
         codi_is_correct = result.is_correct
