@@ -113,6 +113,7 @@ def load_and_parse_gsm8k(
     seed: int = 42,
     min_steps: int = 1,
     max_steps: int = 10,
+    only_two_step: bool = False,
 ) -> tuple[list[ParsedProblem], list[ParsedProblem]]:
     """
     Load GSM8k and parse all problems.
@@ -122,6 +123,7 @@ def load_and_parse_gsm8k(
         seed: Random seed for reproducibility
         min_steps: Minimum number of steps to include
         max_steps: Maximum number of steps to include
+        only_two_step: If True, only include problems with exactly 2 steps
     
     Returns:
         (train_problems, test_problems)
@@ -156,12 +158,16 @@ def load_and_parse_gsm8k(
         
         num_steps = len(steps)
         
-        # Filter by step count
-        if num_steps < min_steps or num_steps > max_steps:
-            continue
-        
-        # Track step distribution
+        # Track ALL step counts for reporting
         step_counts[num_steps] = step_counts.get(num_steps, 0) + 1
+        
+        # Filter by step count
+        if only_two_step:
+            if num_steps != 2:
+                continue
+        else:
+            if num_steps < min_steps or num_steps > max_steps:
+                continue
         
         parsed.append(ParsedProblem(
             id=item["id"],
@@ -173,10 +179,15 @@ def load_and_parse_gsm8k(
             split="",  # Will be set below
         ))
     
-    print(f"\nParsed {len(parsed)} problems with {min_steps}-{max_steps} steps")
-    print("\nStep count distribution:")
+    print("\nStep count distribution (all parsed):")
     for n_steps in sorted(step_counts.keys()):
-        print(f"  {n_steps} steps: {step_counts[n_steps]} problems")
+        marker = " ← selected" if (only_two_step and n_steps == 2) else ""
+        print(f"  {n_steps} steps: {step_counts[n_steps]} problems{marker}")
+    
+    if only_two_step:
+        print(f"\nFiltered to 2-step problems: {len(parsed)}")
+    else:
+        print(f"\nParsed {len(parsed)} problems with {min_steps}-{max_steps} steps")
     
     # Stratified split by step count
     random.seed(seed)
@@ -278,6 +289,12 @@ def generate_qa_examples(problems: list[ParsedProblem]) -> list[dict]:
     """
     Generate QA training examples from parsed problems.
     
+    For 2-step problems, we use:
+    - z1 (latent index 1) for step 1
+    - z3 (latent index 3) for step 2
+    
+    This matches what we discovered CODI actually stores in GSM8k latents.
+    
     For each step, generate:
     - Extraction question: "What is the result of step N?"
     - Classification questions about operation, magnitude, etc.
@@ -290,22 +307,45 @@ def generate_qa_examples(problems: list[ParsedProblem]) -> list[dict]:
         "What is the result of this calculation step?",
         "Tell me the number from this reasoning step.",
         "What was calculated here?",
+        "Extract the numeric value.",
+        "What number is stored here?",
+        "Decode this activation.",
     ]
     
+    # Map step number to latent position (for 2-step problems)
+    # Based on exploration: z1 (index 1) has step 1, z3 (index 3) has step 2
+    STEP_TO_LATENT = {
+        1: 1,  # Step 1 -> latent index 1 (z1)
+        2: 3,  # Step 2 -> latent index 3 (z3)
+    }
+    
     for p in problems:
+        # Only generate examples for 2-step problems with clear mapping
+        if p.num_steps != 2:
+            continue
+        
         for step in p.steps:
+            step_num = step["step_number"]
+            if step_num not in STEP_TO_LATENT:
+                continue
+            
+            latent_pos = STEP_TO_LATENT[step_num]
+            
             # Extraction questions
             for template in extraction_templates:
                 examples.append({
                     "problem_id": p.id,
                     "question": p.question,
                     "num_steps": p.num_steps,
-                    "step_number": step["step_number"],
+                    "step_number": step_num,
+                    "latent_position": latent_pos,
+                    "latent_name": f"z{latent_pos}",
                     "qa_question": template,
                     "qa_answer": step["result"],
                     "qa_type": "extraction",
                     "operation": step["operation"],
                     "expression": step["expression"],
+                    "source": "gsm8k_2step",
                 })
             
             # Operation classification
@@ -315,28 +355,34 @@ def generate_qa_examples(problems: list[ParsedProblem]) -> list[dict]:
                     "problem_id": p.id,
                     "question": p.question,
                     "num_steps": p.num_steps,
-                    "step_number": step["step_number"],
+                    "step_number": step_num,
+                    "latent_position": latent_pos,
+                    "latent_name": f"z{latent_pos}",
                     "qa_question": f"Is this step performing {op}?",
                     "qa_answer": "yes" if is_this_op else "no",
                     "qa_type": "classification_operation",
                     "operation": step["operation"],
                     "expression": step["expression"],
+                    "source": "gsm8k_2step",
                 })
             
             # Result magnitude classification
             try:
                 result_val = float(step["result"])
-                for threshold in [10, 50, 100]:
+                for threshold in [10, 50, 100, 500, 1000]:
                     examples.append({
                         "problem_id": p.id,
                         "question": p.question,
                         "num_steps": p.num_steps,
-                        "step_number": step["step_number"],
+                        "step_number": step_num,
+                        "latent_position": latent_pos,
+                        "latent_name": f"z{latent_pos}",
                         "qa_question": f"Is the result greater than {threshold}?",
                         "qa_answer": "yes" if result_val > threshold else "no",
                         "qa_type": "classification_magnitude",
                         "operation": step["operation"],
                         "expression": step["expression"],
+                        "source": "gsm8k_2step",
                     })
             except ValueError:
                 pass
@@ -356,6 +402,8 @@ if __name__ == "__main__":
                         help="Minimum number of reasoning steps")
     parser.add_argument("--max_steps", type=int, default=10,
                         help="Maximum number of reasoning steps")
+    parser.add_argument("--only_two_step", action="store_true",
+                        help="Only include problems with exactly 2 reasoning steps")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for reproducibility")
     parser.add_argument("--generate_qa", action="store_true",
@@ -368,6 +416,7 @@ if __name__ == "__main__":
         seed=args.seed,
         min_steps=args.min_steps,
         max_steps=args.max_steps,
+        only_two_step=args.only_two_step,
     )
     
     # Print examples
