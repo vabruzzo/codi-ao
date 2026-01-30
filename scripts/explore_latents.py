@@ -130,12 +130,17 @@ def load_codi_model(config_path="configs/default.yaml"):
 def get_top_tokens(latent, model, tokenizer, k=20):
     """Project latent to vocab space and get top-k tokens."""
     # Get the language model head (unembedding matrix)
+    # Handle different model wrapper structures
     if hasattr(model, 'lm_head'):
         lm_head = model.lm_head
+    elif hasattr(model, 'codi') and hasattr(model.codi, 'lm_head'):
+        lm_head = model.codi.lm_head
+    elif hasattr(model, 'model') and hasattr(model.model, 'lm_head'):
+        lm_head = model.model.lm_head
     elif hasattr(model, 'get_output_embeddings'):
         lm_head = model.get_output_embeddings()
     else:
-        raise ValueError("Cannot find lm_head")
+        raise ValueError(f"Cannot find lm_head. Model type: {type(model)}, attrs: {dir(model)[:20]}")
     
     # Project latent to logits: (hidden_dim,) @ (hidden_dim, vocab_size) -> (vocab_size,)
     with torch.no_grad():
@@ -179,9 +184,13 @@ def check_numeric_tokens(top_tokens, target_number):
 
 def check_operation_tokens(latent, model, tokenizer):
     """Check probability mass on operation-related tokens."""
-    # Get logits
+    # Get logits - handle different model wrapper structures
     if hasattr(model, 'lm_head'):
         lm_head = model.lm_head
+    elif hasattr(model, 'codi') and hasattr(model.codi, 'lm_head'):
+        lm_head = model.codi.lm_head
+    elif hasattr(model, 'model') and hasattr(model.model, 'lm_head'):
+        lm_head = model.model.lm_head
     else:
         lm_head = model.get_output_embeddings()
     
@@ -328,8 +337,13 @@ def main():
     codi = load_codi_model()
     
     # Get the base model for logit lens
+    # codi.model is the CODI wrapper, codi.model.codi is the actual model
     model = codi.model
     tokenizer = codi.tokenizer
+    
+    print(f"Model type: {type(model)}")
+    if hasattr(model, 'codi'):
+        print(f"Inner model type: {type(model.codi)}")
     
     # Collect all latents
     print(f"\nRunning CODI on {args.n_samples} problems...")
