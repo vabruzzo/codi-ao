@@ -397,7 +397,7 @@ def run_all_ood_tests(n_samples: int = 50, max_val: int = 100, include_gsm8k: bo
     wrapper = CODIWrapper.from_pretrained()
     
     print("Loading Activation Oracle...")
-    ao = ActivationOracle()
+    ao = ActivationOracle.from_pretrained(lora_path="checkpoints/ao")
     
     all_results = {}
     
