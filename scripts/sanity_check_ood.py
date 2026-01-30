@@ -307,8 +307,10 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
         # Test z2 (step 1)
         z2_latent = result.latent_vectors[1]
         
-        z2_ll_pred = wrapper.logit_lens(z2_latent)
-        z2_ll_ok = z2_ll_pred.strip() == item["step1_result"]
+        z2_ll_result = wrapper.logit_lens(z2_latent)
+        z2_ll_pred, _ = z2_ll_result.get_top1_at_final_layer()
+        z2_ll_pred = z2_ll_pred.strip() if z2_ll_pred else ""
+        z2_ll_ok = z2_ll_pred == item["step1_result"]
         if z2_ll_ok:
             z2_ll_correct += 1
         
@@ -322,8 +324,10 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
         if item.get("step2_result"):
             z4_latent = result.latent_vectors[3]
             
-            z4_ll_pred = wrapper.logit_lens(z4_latent)
-            z4_ll_ok = z4_ll_pred.strip() == item["step2_result"]
+            z4_ll_result = wrapper.logit_lens(z4_latent)
+            z4_ll_pred, _ = z4_ll_result.get_top1_at_final_layer()
+            z4_ll_pred = z4_ll_pred.strip() if z4_ll_pred else ""
+            z4_ll_ok = z4_ll_pred == item["step2_result"]
             if z4_ll_ok:
                 z4_ll_correct += 1
             
@@ -335,6 +339,8 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
         else:
             z4_ao_ok = True  # Skip
             z4_ll_ok = True
+            z4_ll_pred = "N/A"
+            z4_ao_output = "N/A"
         
         total += 1
         
@@ -344,10 +350,10 @@ def evaluate_prompts(wrapper, ao, prompts, test_name: str, use_novel_questions: 
                 "ood_type": item.get("ood_type", "unknown"),
                 "step1_expected": item["step1_result"],
                 "step1_ao": z2_ao_output.strip(),
-                "step1_ll": z2_ll_pred.strip(),
+                "step1_ll": z2_ll_pred,
                 "step2_expected": item.get("step2_result", "N/A"),
                 "step2_ao": z4_ao_output.strip() if item.get("step2_result") else "N/A",
-                "step2_ll": z4_ll_pred.strip() if item.get("step2_result") else "N/A",
+                "step2_ll": z4_ll_pred if item.get("step2_result") else "N/A",
                 "z2_ao_ok": z2_ao_ok,
                 "z4_ao_ok": z4_ao_ok,
             })
