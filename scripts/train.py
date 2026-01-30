@@ -239,7 +239,7 @@ def train_epoch(
 def main():
     parser = argparse.ArgumentParser(description="Train CODI Activation Oracle")
     parser.add_argument("--mode", type=str, choices=["mvp", "full", "phase2"], default="mvp")
-    parser.add_argument("--data_path", type=str, default=None, help="Path to training data (default: auto-detect)")
+    parser.add_argument("--data", "--data_path", type=str, default=None, dest="data_path", help="Path to training data (default: auto-detect)")
     parser.add_argument("--n_samples", type=int, default=None, help="Limit number of samples (default: use all)")
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=1)
