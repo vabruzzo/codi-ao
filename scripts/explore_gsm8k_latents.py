@@ -93,7 +93,7 @@ def explore_gsm8k_latents(n_samples: int = 20, seed: int = 42):
         print(f"\n[{i+1}] Problem: {question[:80]}...")
         print(f"    Parsed steps: {parsed_steps}")
         print(f"    Final answer: {final_answer}")
-        print(f"    CODI output: {result.student_output} ({'✓' if result.is_correct else '✗'})")
+        print(f"    CODI output: {result.predicted_answer} ({'✓' if result.is_correct else '✗'})")
         print(f"    Logit lens at each position:")
         for pos, (token, prob) in ll_results.items():
             marker = ""
