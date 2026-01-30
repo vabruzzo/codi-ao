@@ -142,8 +142,12 @@ def get_top_tokens(latent, model, tokenizer, k=20):
     else:
         raise ValueError(f"Cannot find lm_head. Model type: {type(model)}, attrs: {dir(model)[:20]}")
     
+    # Get the device from lm_head
+    device = next(lm_head.parameters()).device
+    
     # Project latent to logits: (hidden_dim,) @ (hidden_dim, vocab_size) -> (vocab_size,)
     with torch.no_grad():
+        latent = latent.to(device)
         if hasattr(lm_head, 'weight'):
             logits = latent @ lm_head.weight.T
         else:
@@ -194,7 +198,11 @@ def check_operation_tokens(latent, model, tokenizer):
     else:
         lm_head = model.get_output_embeddings()
     
+    # Get the device from lm_head
+    device = next(lm_head.parameters()).device
+    
     with torch.no_grad():
+        latent = latent.to(device)
         if hasattr(lm_head, 'weight'):
             logits = latent @ lm_head.weight.T
         else:
