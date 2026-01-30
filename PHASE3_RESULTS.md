@@ -141,9 +141,39 @@ This may limit generalization to more complex problems.
 | `data/phase3_train.jsonl` | Training data (100K examples) |
 | `checkpoints/ao/` | Trained model |
 
-## Next Steps (Phase 4)
+## OOD Sanity Check Results
 
-1. **Expand synthetic diversity**: Larger number ranges (1-100), more operations, 3+ step problems
-2. **GSM8k evaluation**: Test on real math word problems
-3. **OOD evaluation**: SVAMP, MultiArith, GSM-Hard
-4. **Scale training**: 250K-1M examples if diversity helps
+After Phase 3 training, we ran OOD sanity checks (`scripts/sanity_check_ood.py`):
+
+| Test | CODI Final | AO Latent | vs Baseline |
+|------|-----------|-----------|-------------|
+| Baseline (1-10) | 55% | 100% | - |
+| Large numbers (1-100) | 0% | 32.5% | -67.5% |
+| Novel entities | 10% | 80% | -20% |
+| Edge cases | 33% | 100% | +0% |
+| Novel questions | 40% | 90% | -10% |
+
+### Key Finding: "Latent ✓, CODI ✗"
+
+We discovered cases where the AO correctly extracts the intermediate value but CODI outputs the wrong final answer:
+
+| Test | L✓C✓ | L✓C✗ | L✗C✓ | L✗C✗ |
+|------|------|------|------|------|
+| Baseline | 55% | 45% | 0% | 0% |
+| Novel entities | 5% | 55% | 5% | 35% |
+| Edge cases | 33% | 67% | 0% | 0% |
+
+**Implication**: CODI has "hidden knowledge" - it computes correct intermediates that it fails to utilize in the final answer. The AO can reveal this hidden knowledge.
+
+### Limitations Identified
+
+1. **Large numbers**: Both CODI and AO fail on 1-100+ ranges (CODI's training limitation)
+2. **Novel entities with semantic shift**: z4 extraction drops when problem semantics change
+3. **GSM8k**: 17% accuracy - mismatch between synthetic templates and real problems
+
+## Next Steps → Phase 4
+
+See `PHASE4_RESULTS.md` for the plan to address these limitations:
+1. **GSM8k integration**: Parse real problems with ground truth
+2. **Expanded synthetic**: 1-100 numbers, more entities, edge cases
+3. **Step count tracking**: Analyze by number of reasoning steps

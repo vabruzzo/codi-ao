@@ -230,46 +230,125 @@ To prevent AO from just recovering input text:
 
 ---
 
-## Phase 4: Evaluation & Ablations
+## Phase 4: Robust Multi-Domain Training
 
-### 4.1 In-Distribution Evaluation
+**Goal**: Train AO on diverse, real-world data to improve generalization beyond narrow synthetic templates.
 
-- **Intermediate result accuracy**: Exact match on z2/z4 results
-- **Operation classification**: Binary accuracy
-- **Reasoning description**: Qualitative assessment
+### 4.1 GSM8k Integration
 
-### 4.2 Out-of-Distribution Evaluation
+**Script**: `scripts/parse_gsm8k.py`
 
-| Dataset | Description |
-|---------|-------------|
-| SVAMP | Grade-school arithmetic variations |
-| MultiArith | Multi-step word problems |
-| GSM-Hard | Larger magnitude numbers |
+Parse GSM8k dataset for ground truth intermediate steps:
+- Extract intermediate calculation values from solution CoT
+- Track number of reasoning steps per problem
+- Filter/stratify by step count (2-step, 3-step, etc.)
+- Create train/test split (keep test set separate for final eval)
 
-### 4.3 Error Detection
+| Task | Description |
+|------|-------------|
+| Parse solutions | Regex extraction of `X op Y = Z` patterns |
+| Step counting | Classify problems by number of steps |
+| Ground truth mapping | Map intermediate values to latent positions |
+| Train/test split | 80/20 split, stratified by step count |
 
-- Given latent vectors from incorrect CODI predictions
-- Ask AO: "Does this reasoning contain errors?"
-- Measure precision/recall for error detection
+**Metrics to track everywhere**:
+- Number of reasoning steps in problem
+- Which latent positions (z1-z6) contain which step
+- CODI final answer correctness
+- AO extraction accuracy by step number
 
-### 4.4 Ablations
+### 4.2 Expanded Synthetic Math
+
+Build on existing templates with more variety:
+
+| Expansion | Description |
+|-----------|-------------|
+| **Number ranges** | 1-10 (baseline), 1-100, 1-1000 |
+| **Operations** | Add, subtract, multiply, divide |
+| **Entity types** | Original + zoo, library, hospital, etc. |
+| **Edge cases** | Result=1, step1=step2, large results |
+| **Templates** | 50+ templates (up from 20) |
+
+### 4.3 OOD Sanity Checks (Expanded)
+
+Formalize the sanity checks from `scripts/sanity_check_ood.py`:
+
+| Test | What it measures |
+|------|------------------|
+| **Baseline** | Numbers 1-10, trained questions |
+| **Large numbers** | Numbers 1-100, 1-1000 |
+| **Novel entities** | Zoo, library, hospital, etc. |
+| **Edge cases** | Boundary conditions |
+| **Novel questions** | Paraphrases not in training |
+| **Step count variation** | 2-step vs 3-step vs 4-step problems |
+
+### 4.4 Training Data Mix
+
+| Source | Examples | Step Count |
+|--------|----------|------------|
+| Synthetic (original) | 50K | 2-step |
+| Synthetic (expanded) | 50K | 2-step |
+| GSM8k (parsed) | 50K | 2-5 step |
+| **Total** | 150K | Mixed |
+
+### 4.5 Evaluation Protocol
+
+For ALL evaluations, track:
+
+```python
+metrics = {
+    "problem_id": str,
+    "num_steps": int,           # Number of reasoning steps
+    "step_being_tested": int,   # Which step (1, 2, 3, ...)
+    "latent_position": str,     # z2, z4, etc.
+    "ground_truth": str,
+    "ao_prediction": str,
+    "ao_correct": bool,
+    "ll_prediction": str,
+    "ll_correct": bool,
+    "codi_final_answer": str,
+    "codi_correct": bool,
+}
+```
+
+### 4.6 Exit Criteria
+
+Before proceeding to Phase 5:
+- [ ] GSM8k parser extracts ground truth for 2-3 step problems
+- [ ] Train/test split maintained (no leakage)
+- [ ] Expanded synthetic covers number ranges 1-100
+- [ ] OOD sanity checks formalized as eval suite
+- [ ] All metrics track step count
+
+---
+
+## Phase 5: Ablations & Analysis
+
+### 5.1 Ablations
 
 | Ablation | Options |
 |----------|---------|
 | Latent type | Projected vs. pre-projection |
 | Injection layer | Layer 0 vs. layer 1 |
 | Input format | Single vs. multi-latent |
-| Dataset mix | MVP-only vs. full mix |
+| Dataset mix | Synthetic-only vs. GSM8k vs. mixed |
 | Collection layer | 25% vs. 50% vs. 75% depth |
+| Number range | 1-10 vs 1-100 training |
 
-### 4.5 Baselines for Comparison
+### 5.2 Baselines for Comparison
 
 | Method | Description |
 |--------|-------------|
-| Logit Lens | Project latent to vocab, argmax (from LessWrong) |
+| Logit Lens | Project latent to vocab, argmax |
 | Linear Probe | Train linear classifier: latent → result |
 | PatchScopes | Untrained AO (zero-shot injection) |
-| SPQA-only | AO trained only on QA task |
+
+### 5.3 Key Questions to Answer
+
+1. Does training on GSM8k improve OOD generalization?
+2. Does step count affect AO accuracy (2-step vs 3-step)?
+3. Can AO generalize to larger number ranges?
+4. What's the relationship between CODI correctness and latent correctness?
 
 ---
 
