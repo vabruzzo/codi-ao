@@ -88,7 +88,7 @@ EXTRACTION_GENERIC = [
     "What is the output of this calculation step?",
 ]
 
-# Position-aware extraction for Step 1 (z2)
+# Position-aware extraction for Step 1 (z2) - expanded
 EXTRACTION_STEP1 = [
     "What is the first intermediate result?",
     "What was calculated in step 1?",
@@ -98,9 +98,16 @@ EXTRACTION_STEP1 = [
     "What value did the first step produce?",
     "What is stored from the first computation?",
     "What result came from step one?",
+    "What was the result of the first calculation?",
+    "What number came out of step 1?",
+    "What is the initial computed value?",
+    "What does the first step give us?",
+    "What is the output of the first operation?",
+    "What value is produced in step one?",
+    "What is the first step's answer?",
 ]
 
-# Position-aware extraction for Step 2 (z4)
+# Position-aware extraction for Step 2 (z4) - expanded
 EXTRACTION_STEP2 = [
     "What is the second intermediate result?",
     "What was calculated in step 2?",
@@ -110,6 +117,13 @@ EXTRACTION_STEP2 = [
     "What value did the second step produce?",
     "What is stored from the second computation?",
     "What result came from step two?",
+    "What was the result of the second calculation?",
+    "What number came out of step 2?",
+    "What is the second computed value?",
+    "What does the second step give us?",
+    "What is the output of the second operation?",
+    "What value is produced in step two?",
+    "What is the second step's answer?",
 ]
 
 # Combine all extraction templates
@@ -117,81 +131,242 @@ INTERMEDIATE_RESULT_TEMPLATES = EXTRACTION_GENERIC  # Backward compatibility
 
 # -----------------------------------------------------------------------------
 # 2. CLASSIFICATION QUESTIONS (Yes/No) - Properties of the latent
+# Following AO paper approach: 15-25 diverse paraphrases per question type
 # -----------------------------------------------------------------------------
 
-# Magnitude classification
+# Magnitude classification - expanded with diverse phrasings
 CLASSIFICATION_MAGNITUDE = {
     "greater_than_10": [
         "Is the result greater than 10?",
         "Is this value more than 10?",
         "Does this computation produce a result above 10?",
+        "Is the computed value larger than 10?",
+        "Does this step yield a number exceeding 10?",
+        "Is the intermediate result over 10?",
+        "Would you say this value is greater than 10?",
+        "Is the output of this step more than 10?",
+        "Does the calculation give something above 10?",
+        "Is this number bigger than 10?",
+        "Can we say this result exceeds 10?",
+        "Is the value here larger than ten?",
+        "Does this produce something greater than 10?",
+        "Is this result above the value 10?",
+        "Would this be classified as greater than 10?",
     ],
     "greater_than_50": [
         "Is the result greater than 50?",
         "Is this value more than 50?",
         "Does this step produce a number above 50?",
+        "Is the computed value larger than 50?",
+        "Does this step produce a result above 50?",
+        "Is the intermediate result over 50?",
+        "Would you say this value exceeds 50?",
+        "Is the output more than fifty?",
+        "Does the calculation yield something above 50?",
+        "Is this number bigger than 50?",
+        "Can we say this result is greater than 50?",
+        "Is the value here larger than fifty?",
+        "Does this produce something exceeding 50?",
+        "Is this result above the value 50?",
+        "Would this be classified as more than 50?",
     ],
     "greater_than_100": [
         "Is the result greater than 100?",
         "Is this value more than 100?",
         "Is the computed value above 100?",
+        "Does this step produce a result exceeding 100?",
+        "Is the intermediate result larger than 100?",
+        "Would you say this value is over 100?",
+        "Is the output more than one hundred?",
+        "Does the calculation give something above 100?",
+        "Is this number bigger than 100?",
+        "Can we say this result exceeds 100?",
+        "Is the value here larger than a hundred?",
+        "Does this produce something greater than 100?",
+        "Is this result above the value 100?",
+        "Is the computed value more than 100?",
+        "Would this be classified as exceeding 100?",
     ],
     "less_than_10": [
         "Is the result less than 10?",
         "Is this value below 10?",
         "Does this produce a single digit result?",
+        "Is the computed value smaller than 10?",
+        "Does this step yield a number under 10?",
+        "Is the intermediate result below 10?",
+        "Would you say this value is less than 10?",
+        "Is the output under ten?",
+        "Does the calculation give something below 10?",
+        "Is this number smaller than 10?",
+        "Can we say this result is under 10?",
+        "Is the value here less than ten?",
+        "Does this produce a single-digit number?",
+        "Is this result below the value 10?",
+        "Would this be classified as less than 10?",
     ],
     "is_positive": [
         "Is the result positive?",
         "Is this a positive number?",
         "Is the computed value greater than zero?",
+        "Does this step produce a positive result?",
+        "Is the intermediate result positive?",
+        "Would you say this value is positive?",
+        "Is the output a positive number?",
+        "Does the calculation yield a positive value?",
+        "Is this number greater than zero?",
+        "Can we say this result is positive?",
+        "Is the value here above zero?",
+        "Does this produce a positive outcome?",
+        "Is this result on the positive side?",
+        "Is the computed value positive?",
+        "Would this be classified as a positive number?",
     ],
     "is_negative": [
         "Is the result negative?",
         "Is this a negative number?",
         "Is the value below zero?",
+        "Does this step produce a negative result?",
+        "Is the computed value less than zero?",
+        "Is the intermediate result negative?",
+        "Would you say this value is negative?",
+        "Is the output a negative number?",
+        "Does the calculation yield a negative value?",
+        "Is this number less than zero?",
+        "Can we say this result is negative?",
+        "Is the value here below zero?",
+        "Does this produce a negative outcome?",
+        "Is this result on the negative side?",
+        "Would this be classified as a negative number?",
     ],
 }
 
-# Operation classification
+# Operation classification - expanded with division and diverse phrasings
 CLASSIFICATION_OPERATION = {
     "is_addition": [
         "Was addition used in this step?",
         "Is this an addition operation?",
         "Did this step involve adding?",
+        "Is this step performing addition?",
+        "Was this calculation done using addition?",
+        "Did this step add numbers together?",
+        "Is the operation here addition?",
+        "Would you say this is an addition step?",
+        "Does this step use the addition operation?",
+        "Is adding the operation performed here?",
+        "Can we say addition was used?",
+        "Is this an example of addition?",
+        "Did this computation involve adding?",
+        "Is the arithmetic operation here addition?",
+        "Would this be classified as an addition operation?",
     ],
     "is_subtraction": [
         "Was subtraction used in this step?",
         "Is this a subtraction operation?",
         "Did this step involve subtracting?",
+        "Is this step performing subtraction?",
+        "Was this calculation done using subtraction?",
+        "Did this step subtract numbers?",
+        "Is the operation here subtraction?",
+        "Would you say this is a subtraction step?",
+        "Does this step use the subtraction operation?",
+        "Is subtracting the operation performed here?",
+        "Can we say subtraction was used?",
+        "Is this an example of subtraction?",
+        "Did this computation involve subtracting?",
+        "Is the arithmetic operation here subtraction?",
+        "Would this be classified as a subtraction operation?",
     ],
     "is_multiplication": [
         "Was multiplication used in this step?",
         "Is this a multiplication operation?",
         "Did this step involve multiplying?",
+        "Is this step performing multiplication?",
+        "Was this calculation done using multiplication?",
+        "Did this step multiply numbers together?",
+        "Is the operation here multiplication?",
+        "Would you say this is a multiplication step?",
+        "Does this step use the multiplication operation?",
+        "Is multiplying the operation performed here?",
+        "Can we say multiplication was used?",
+        "Is this an example of multiplication?",
+        "Did this computation involve multiplying?",
+        "Is the arithmetic operation here multiplication?",
+        "Would this be classified as a multiplication operation?",
+    ],
+    "is_division": [
+        "Was division used in this step?",
+        "Is this a division operation?",
+        "Did this step involve dividing?",
+        "Is this step performing division?",
+        "Was this calculation done using division?",
+        "Did this step divide numbers?",
+        "Is the operation here division?",
+        "Would you say this is a division step?",
+        "Does this step use the division operation?",
+        "Is dividing the operation performed here?",
+        "Can we say division was used?",
+        "Is this an example of division?",
+        "Did this computation involve dividing?",
+        "Is the arithmetic operation here division?",
+        "Would this be classified as a division operation?",
     ],
 }
 
-# Position classification
+# Position classification - expanded with diverse phrasings matching evaluation
 CLASSIFICATION_POSITION = {
     "is_first_step": [
         "Is this the first calculation step?",
         "Is this step 1?",
         "Is this one of the first calculation steps?",
+        "Is this an early reasoning step?",
+        "Is this the first computation?",
+        "Would you say this is the first step?",
+        "Is this the initial calculation?",
+        "Is this at the beginning of the reasoning?",
+        "Is this one of the early steps?",
+        "Can we say this is the first step?",
+        "Is this the first operation in the sequence?",
+        "Is this positioned at the start?",
+        "Is this the opening calculation step?",
+        "Would this be classified as step 1?",
+        "Is this among the first calculation steps?",
     ],
     "is_second_step": [
         "Is this the second calculation step?",
         "Is this step 2?",
         "Is this the second computation?",
+        "Is this a later reasoning step?",
+        "Would you say this is the second step?",
+        "Is this the next calculation after the first?",
+        "Is this positioned second in the sequence?",
+        "Can we say this is the second step?",
+        "Is this the second operation performed?",
+        "Is this not the first step?",
+        "Would this be classified as step 2?",
+        "Is this the follow-up calculation?",
+        "Is this after the initial step?",
+        "Is this the second in the reasoning chain?",
+        "Is this among the later calculation steps?",
     ],
 }
 
-# Structure classification
+# Structure classification - expanded
 CLASSIFICATION_STRUCTURE = [
     "Is this a computational step?",
     "Does this step perform a calculation?",
     "Is this an actual computation?",
     "Is meaningful work done in this step?",
+    "Is this step performing a calculation?",
+    "Does this represent a real computation?",
+    "Is this a step where calculation happens?",
+    "Would you say this is a computational step?",
+    "Is computation occurring in this step?",
+    "Is this an active calculation step?",
+    "Does this step do actual math?",
+    "Is this where a calculation is performed?",
+    "Can we say this is a computation step?",
+    "Is this step mathematically active?",
+    "Would this be classified as a computational step?",
 ]
 
 # -----------------------------------------------------------------------------
@@ -205,35 +380,67 @@ OPERATION_TYPE_TEMPLATES = [
     "What arithmetic operation was used?",
     "What kind of math operation is this?",
     "Was this addition, subtraction, or multiplication?",
+    "What type of math was performed here?",
+    "Which arithmetic operation was applied?",
+    "What operation was used in this step?",
+    "What kind of calculation is this?",
+    "What math operation does this represent?",
+    "Which operation produced this value?",
+    "What type of arithmetic is this?",
+    "Is this addition, subtraction, multiplication, or division?",
+    "What operation was computed?",
 ]
 
 # -----------------------------------------------------------------------------
 # 4. MULTI-LATENT QUESTIONS - Require all 6 latent vectors
+# Expanded with diverse phrasings
 # -----------------------------------------------------------------------------
 
-# Step extraction with full context
+# Step extraction with full context - expanded
 MULTI_LATENT_EXTRACTION = [
     "What was calculated in the first step?",
     "What was the result of the second calculation?",
     "What intermediate results were computed?",
     "What is stored in the first reasoning position?",
     "What is stored in the second reasoning position?",
+    "What value was computed in step 1?",
+    "What value was computed in step 2?",
+    "What is the first intermediate value?",
+    "What is the second intermediate value?",
+    "What number was calculated first?",
+    "What number was calculated second?",
+    "What did the first computation produce?",
+    "What did the second computation produce?",
+    "What is the result from the first step?",
+    "What is the result from the second step?",
 ]
 
-# Comparison questions
+# Comparison questions - expanded
 MULTI_LATENT_COMPARISON = [
     "Which calculation step produced the larger result?",
     "Is the second step result greater than the first?",
     "Which step has the smaller value?",
     "Is step 1's result larger than step 2's?",
     "Compare the two intermediate results: which is bigger?",
+    "Which step yielded the higher number?",
+    "Is the first step result greater than the second?",
+    "Which calculation gave the larger value?",
+    "Did step 1 or step 2 produce the bigger result?",
+    "Is the result of step 2 larger than step 1?",
+    "Which intermediate result is bigger?",
+    "Compare step 1 and step 2: which is larger?",
+    "Which step has the greater value?",
+    "Is the second result bigger than the first?",
+    "Which of the two steps has the larger output?",
 ]
 
-# Relationship questions
+# Relationship questions - expanded
 MULTI_LATENT_RELATIONSHIP = [
     "What is the difference between step 1 and step 2?",
     "How do the intermediate results relate?",
     "Is step 2 a multiple of step 1?",
+    "How much larger is step 2 than step 1?",
+    "What is the ratio of the two steps?",
 ]
 
 # Legacy multi-latent templates (backward compatibility)
@@ -791,6 +998,7 @@ class Phase3DataGenerator:
             ("is_addition", actual_op == "addition"),
             ("is_subtraction", actual_op == "subtraction"),
             ("is_multiplication", actual_op == "multiplication"),
+            ("is_division", actual_op == "division"),  # Always "No" for our synthetic data
         ]
         
         for _ in range(count):
