@@ -1,8 +1,13 @@
-# Phase 2 Results: Evaluation & Analysis
+# Phase 2 Results: Evaluation Harness & Analysis
+
+**Date**: January 29, 2026  
+**Status**: ✓ COMPLETE
 
 ## Overview
 
-Phase 2 focused on building a comprehensive evaluation harness and analyzing the trained Activation Oracle's capabilities and limitations.
+Phase 2 pivoted from the original plan (full data generation) to focus on building a comprehensive evaluation harness and analyzing the trained AO's capabilities. This informed what diverse training was needed for Phase 3.
+
+**Note**: The original PLAN.md described Phase 2 as "Full Data Generation" but we found it more valuable to first understand the AO's limitations through rigorous evaluation before scaling up data generation.
 
 ## What We Built
 

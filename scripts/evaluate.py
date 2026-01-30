@@ -54,7 +54,19 @@ def generate_classification_test_examples(
         for lat_pos, step_idx in [(1, 0), (3, 1)]:
             latent_vec = result.latent_vectors[lat_pos]
             step_result = str(item[f"step{step_idx + 1}_result"])
-            cot_step = f"{step_result}"  # Simplified
+            
+            # Build proper cot_step with operator info for condition checking
+            # Step 1 (lat_pos=1): addition or subtraction based on item["type"]
+            # Step 2 (lat_pos=3): always multiplication
+            if step_idx == 0:  # Step 1
+                op_type = item.get("type", "addition")
+                if op_type == "addition":
+                    cot_step = f"{item['x']}+{item['y']}={step_result}"
+                else:  # subtraction
+                    cot_step = f"{item['x']}-{item['y']}={step_result}"
+            else:  # Step 2 - always multiplication
+                step1_result = str(item["step1_result"])
+                cot_step = f"{step1_result}*{item['z']}={step_result}"
             
             # Pick 2 random classification tasks
             task_names = random.sample(list(CLASSIFICATION_TASKS.keys()), min(2, len(CLASSIFICATION_TASKS)))

@@ -145,23 +145,29 @@ CLASSIFICATION_TASKS = {
         "condition": lambda step, result, pos: _is_whole_number(result),
         "type": "result_property",
     },
-    # Step position
-    "is_early_step": {
+    # Step position - aligned with training questions
+    "is_first_step": {
         "questions": [
-            "Is this an early reasoning step?",
+            "Is this the first calculation step?",
+            "Is this step 1?",
             "Is this one of the first calculation steps?",
-            "Is this near the beginning of the reasoning?",
+            "Is this the first computation?",
+            "Would you say this is the first step?",
+            "Is this the initial calculation?",
         ],
-        "condition": lambda step, result, pos: pos < 3,
+        "condition": lambda step, result, pos: pos == 1,  # z2 = step 1
         "type": "position",
     },
-    "is_late_step": {
+    "is_second_step": {
         "questions": [
-            "Is this a late reasoning step?",
-            "Is this near the end of the reasoning?",
-            "Is this one of the final calculation steps?",
+            "Is this the second calculation step?",
+            "Is this step 2?",
+            "Is this the second computation?",
+            "Would you say this is the second step?",
+            "Is this the follow-up calculation?",
+            "Is this after the initial step?",
         ],
-        "condition": lambda step, result, pos: pos >= 4,
+        "condition": lambda step, result, pos: pos == 3,  # z4 = step 2
         "type": "position",
     },
     "is_calculation_step": {

@@ -125,50 +125,69 @@ Evaluate on held-out GSM8k-style subset:
 
 ---
 
-## Phase 2: Full Data Generation
+## Phase 2: Evaluation Harness & Analysis (REVISED)
 
-### 2.1 Latent-to-CoT QA Dataset
+**Note**: Original plan called for full data generation, but we pivoted to evaluation first to understand AO limitations before scaling.
 
-- **Source**: GSM8k-Aug (~385k samples)
-- **Target**: ~64,000 QA pairs
-- **Question types**:
-  - Intermediate result: "What is the calculation result?"
-  - Operation type: "What operation was performed?"
-  - Reasoning structure: "Is this a transitional step?"
-- **Template pool**: 20 paraphrases per question type
+### 2.1 What We Built
 
-### 2.2 Classification Dataset
+- **Evaluation harness** (`scripts/evaluate.py`) with:
+  - Single-latent QA evaluation
+  - Classification evaluation (operation, position, magnitude, structure)
+  - Multi-latent QA with comparison questions
+  - Full qualitative output (every prompt/response)
+  
+- **Bug fixes**:
+  - Empty prediction correctness bug in logit lens baseline
 
-- **Target**: ~336,000 samples (7 tasks × 48,000)
-- **Tasks**:
-  - Operation type (addition/multiplication/etc.)
-  - Result properties (>100, negative, whole number)
-  - Step position (early/late/final)
-  - Correctness (given ground truth)
+### 2.2 Key Discoveries
 
-### 2.3 Self-Supervised Context Prediction
+| Finding | Impact |
+|---------|--------|
+| Final answer not in latents | Can't ask AO for final answer |
+| z2/z4 confusion pattern | Need position-aware training |
+| Comparison at 8% | Need multi-latent comparison training |
+| result_property at 70% | Need magnitude classification training |
 
-- **Target**: ~600,000 samples
-- **Source**: Mixed pretraining + conversational data (or teacher CoT)
-- **Task**: Predict previous/next tokens from activation sequence
-- **Variation**: Single-token and multi-token activation inputs
+### 2.3 Results (Pre-Phase 3)
 
-### 2.4 Dataset Mixing & Storage
+- Single-Latent: AO 92%, Logit Lens 93%
+- Classification: 88% overall (operation 100%, result_property 70%)
+- Multi-Latent Comparison: 8%
 
-| Dataset | Samples | Percentage |
-|---------|---------|------------|
-| Latent-to-CoT QA | 64,000 | 6.4% |
-| Classification | 336,000 | 33.6% |
-| Context Prediction | 600,000 | 60.0% |
-| **Total** | ~1,000,000 | 100% |
-
-- Save as sharded datasets with metadata
-- Use reproducible seeds
-- Store both projected and pre-projection latents
+See `PHASE2_RESULTS.md` for full details.
 
 ---
 
-## Phase 3: Training
+## Phase 3: Diverse Data Generation & Training (CURRENT)
+
+### 3.0 Goals
+
+Based on Phase 2 findings, Phase 3 addresses:
+1. **Question diversity**: 15 paraphrases per type (matching AO paper)
+2. **Task diversity**: Extraction, classification, comparison
+3. **Scale**: 250K-1M examples (25-100% of AO paper)
+4. **Position awareness**: Step-specific questions to reduce z2/z4 confusion
+
+### 3.1 Data Generation
+
+**Script**: `scripts/generate_phase3_data.py`
+
+| Question Type | Templates | Description |
+|---------------|-----------|-------------|
+| extraction_generic | 15 | "What is the result?" |
+| extraction_step1 | 15 | "What was calculated in step 1?" |
+| extraction_step2 | 15 | "What was calculated in step 2?" |
+| classification_magnitude | 15 each × 6 thresholds | "Is result > 50?" |
+| classification_operation | 15 each × 4 ops | "Was division used?" |
+| classification_position | 15 each × 2 positions | "Is this step 1?" |
+| classification_structure | 15 | "Is this a computation?" |
+| multi_latent_comparison | 15 | "Which step is larger?" |
+| operation_type | 15 | "What operation was performed?" |
+
+**Target**: 25K prompts → 250K examples (25% of AO paper scale)
+
+### 3.2 Training Configuration
 
 ### 3.1 Configuration
 
