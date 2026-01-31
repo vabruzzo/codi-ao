@@ -169,17 +169,28 @@ def main():
     print("Loading Activation Oracle...")
     ao = load_ao_model(args.checkpoint)
     
-    # First pass: collect all latents
+    # First pass: collect all latents and track CODI accuracy
     print("\nCollecting latents for all test problems...")
     all_latents_list = []
+    codi_correct_list = []
+    codi_predictions = []
     valid_problems = []
     for problem in tqdm(test_problems, desc="Collecting latents"):
-        result = codi.collect_latents(problem["prompt"], return_hidden_states=False)
+        ground_truth = str(problem["step2"])  # Final answer
+        result = codi.collect_latents(
+            problem["prompt"], 
+            ground_truth_answer=ground_truth,
+            return_hidden_states=False
+        )
         if len(result.latent_vectors) >= 6:
             all_latents_list.append(result.latent_vectors[:6])
+            codi_correct_list.append(result.is_correct)
+            codi_predictions.append(result.predicted_answer)
             valid_problems.append(problem)
     
+    codi_accuracy = sum(1 for c in codi_correct_list if c) / len(codi_correct_list) * 100
     print(f"Collected latents for {len(valid_problems)} problems")
+    print(f"CODI accuracy on test set: {codi_accuracy:.1f}% ({sum(1 for c in codi_correct_list if c)}/{len(codi_correct_list)})")
     
     # Shuffle if requested
     if args.shuffle:
@@ -187,11 +198,17 @@ def main():
         indices = list(range(len(all_latents_list)))
         random.shuffle(indices)
         all_latents_list = [all_latents_list[i] for i in indices]
+        codi_correct_list = [codi_correct_list[i] for i in indices]
+        codi_predictions = [codi_predictions[i] for i in indices]
         print(f"Shuffled with seed {args.seed}")
     
     # Results storage
     results = {
-        "config": {"shuffle": args.shuffle, "seed": args.seed if args.shuffle else None},
+        "config": {
+            "shuffle": args.shuffle, 
+            "seed": args.seed if args.shuffle else None,
+            "codi_accuracy": codi_accuracy,
+        },
         "extraction_step1": {"correct": 0, "total": 0, "predictions": []},
         "extraction_step2": {"correct": 0, "total": 0, "predictions": []},
         "operation_direct": {"correct": 0, "total": 0, "predictions": [], "per_op": {}},
@@ -207,8 +224,9 @@ def main():
     print("\nRunning evaluations...")
     print("-" * 60)
     
-    for i, (problem, all_latents) in enumerate(tqdm(zip(valid_problems, all_latents_list), 
-                                                      desc="Evaluating", total=len(valid_problems))):
+    for i, (problem, all_latents, codi_correct) in enumerate(tqdm(
+            zip(valid_problems, all_latents_list, codi_correct_list), 
+            desc="Evaluating", total=len(valid_problems))):
         # Ground truth (from problem, may not match latents if shuffled!)
         X = problem["X"]
         Y = problem["Y"]
@@ -226,7 +244,8 @@ def main():
         if correct:
             results["extraction_step1"]["correct"] += 1
         results["extraction_step1"]["predictions"].append({
-            "true": step1, "pred": pred, "response": response, "correct": correct
+            "true": step1, "pred": pred, "response": response, "correct": correct,
+            "codi_correct": codi_correct
         })
         
         # --- Extraction Step 2 ---
@@ -237,7 +256,8 @@ def main():
         if correct:
             results["extraction_step2"]["correct"] += 1
         results["extraction_step2"]["predictions"].append({
-            "true": step2, "pred": pred, "response": response, "correct": correct
+            "true": step2, "pred": pred, "response": response, "correct": correct,
+            "codi_correct": codi_correct
         })
         
         # --- Operation Direct ---
@@ -259,7 +279,8 @@ def main():
         if correct:
             results["operation_direct"]["per_op"][op_name]["correct"] += 1
         results["operation_direct"]["predictions"].append({
-            "true": op_name, "pred": pred_op, "response": response, "correct": correct
+            "true": op_name, "pred": pred_op, "response": response, "correct": correct,
+            "codi_correct": codi_correct
         })
         
         # --- Operation Binary ---
@@ -281,7 +302,8 @@ def main():
         if correct:
             results["operand_first"]["correct"] += 1
         results["operand_first"]["predictions"].append({
-            "true": X, "pred": pred, "response": response, "correct": correct
+            "true": X, "pred": pred, "response": response, "correct": correct,
+            "codi_correct": codi_correct
         })
         
         # --- Operand Second (Y) ---
@@ -292,7 +314,8 @@ def main():
         if correct:
             results["operand_second"]["correct"] += 1
         results["operand_second"]["predictions"].append({
-            "true": Y, "pred": pred, "response": response, "correct": correct
+            "true": Y, "pred": pred, "response": response, "correct": correct,
+            "codi_correct": codi_correct
         })
         
         # --- Full Calculation ---
@@ -328,6 +351,7 @@ def main():
             "pred_result": pred_result,
             "correct_strict": correct_strict,
             "correct_semantic": correct_semantic,
+            "codi_correct": codi_correct,
         })
         
         # --- Magnitude Step 1 ---
@@ -386,6 +410,46 @@ def main():
         print(f"  Strict: {pred['correct_strict']}, Semantic: {pred['correct_semantic']}")
         print()
     
+    # Analysis by CODI correctness
+    print("\n" + "=" * 60)
+    print("AO ACCURACY BY CODI CORRECTNESS")
+    print("=" * 60)
+    
+    # Key tasks to analyze
+    tasks_to_analyze = ["extraction_step1", "extraction_step2", "operation_direct", 
+                        "operand_first", "operand_second", "full_calculation_strict"]
+    
+    for task in tasks_to_analyze:
+        preds = results[task]["predictions"]
+        if not preds or "codi_correct" not in preds[0]:
+            continue
+        
+        # Split by CODI correctness
+        codi_right = [p for p in preds if p.get("codi_correct")]
+        codi_wrong = [p for p in preds if not p.get("codi_correct")]
+        
+        # Handle full_calculation_strict differently (uses correct_strict)
+        if task == "full_calculation_strict":
+            acc_right = 100 * sum(1 for p in codi_right if p["correct_strict"]) / len(codi_right) if codi_right else 0
+            acc_wrong = 100 * sum(1 for p in codi_wrong if p["correct_strict"]) / len(codi_wrong) if codi_wrong else 0
+        else:
+            acc_right = 100 * sum(1 for p in codi_right if p["correct"]) / len(codi_right) if codi_right else 0
+            acc_wrong = 100 * sum(1 for p in codi_wrong if p["correct"]) / len(codi_wrong) if codi_wrong else 0
+        
+        print(f"{task}:")
+        print(f"  CODI correct (n={len(codi_right)}): {acc_right:.1f}%")
+        print(f"  CODI wrong   (n={len(codi_wrong)}): {acc_wrong:.1f}%")
+        diff = acc_right - acc_wrong
+        print(f"  Difference: {diff:+.1f}%")
+        print()
+    
+    # Store CODI analysis in results
+    results["codi_analysis"] = {
+        "codi_accuracy": codi_accuracy,
+        "codi_correct_count": sum(1 for c in codi_correct_list if c),
+        "codi_total": len(codi_correct_list),
+    }
+    
     # Summary
     results["summary"] = {
         task: {
@@ -393,7 +457,8 @@ def main():
             "correct": data["correct"],
             "total": data["total"]
         }
-        for task, data in results.items() if task not in ["summary"] and "predictions" not in str(type(data))
+        for task, data in results.items() 
+        if task not in ["summary", "config"] and isinstance(data, dict) and "total" in data
     }
     
     # Save
