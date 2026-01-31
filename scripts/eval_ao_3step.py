@@ -177,7 +177,8 @@ def main():
         # Single-latent extraction
         "extraction_step1_single": {"correct": 0, "total": 0, "examples": []},
         "extraction_step2_single": {"correct": 0, "total": 0, "examples": []},
-        "extraction_step3_single": {"correct": 0, "total": 0, "examples": []},
+        "extraction_step3_z5_single": {"correct": 0, "total": 0, "examples": []},
+        "extraction_step3_z6_single": {"correct": 0, "total": 0, "examples": []},
         
         # Multi-latent extraction
         "extraction_step1_multi": {"correct": 0, "total": 0, "examples": []},
@@ -267,6 +268,7 @@ def main():
         
         z2 = latents[1]  # Position 1
         z4 = latents[3]  # Position 3
+        z5 = latents[4]  # Position 4
         z6 = latents[5]  # Position 5
         
         # =====================================================================
@@ -313,13 +315,21 @@ def main():
         # STEP 3 / FINAL ANSWER EXTRACTION
         # =====================================================================
         
+        # Single z5
+        resp = ao_generate(ao, AOPrompt, [z5], [4], step3_q)
+        pred = extract_number(resp)
+        correct = (pred == step3)
+        results["extraction_step3_z5_single"]["total"] += 1
+        if correct:
+            results["extraction_step3_z5_single"]["correct"] += 1
+        
         # Single z6
         resp = ao_generate(ao, AOPrompt, [z6], [5], step3_q)
         pred = extract_number(resp)
         correct = (pred == step3)
-        results["extraction_step3_single"]["total"] += 1
+        results["extraction_step3_z6_single"]["total"] += 1
         if correct:
-            results["extraction_step3_single"]["correct"] += 1
+            results["extraction_step3_z6_single"]["correct"] += 1
         
         # Multi (all 6)
         resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], step3_q)
@@ -462,7 +472,8 @@ def main():
     print(f"Step 2 (z4 only):  {pct(results['extraction_step2_single'])} ({results['extraction_step2_single']['correct']}/{results['extraction_step2_single']['total']})")
     print(f"Step 2 (all 6):    {pct(results['extraction_step2_multi'])} ({results['extraction_step2_multi']['correct']}/{results['extraction_step2_multi']['total']})")
     print()
-    print(f"Step 3 (z6 only):  {pct(results['extraction_step3_single'])} ({results['extraction_step3_single']['correct']}/{results['extraction_step3_single']['total']})")
+    print(f"Step 3 (z5 only):  {pct(results['extraction_step3_z5_single'])} ({results['extraction_step3_z5_single']['correct']}/{results['extraction_step3_z5_single']['total']})")
+    print(f"Step 3 (z6 only):  {pct(results['extraction_step3_z6_single'])} ({results['extraction_step3_z6_single']['correct']}/{results['extraction_step3_z6_single']['total']})")
     print(f"Step 3 (all 6):    {pct(results['extraction_step3_multi'])} ({results['extraction_step3_multi']['correct']}/{results['extraction_step3_multi']['total']})")
     
     print("\n--- Operation Detection ---")

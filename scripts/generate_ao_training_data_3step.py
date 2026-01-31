@@ -124,6 +124,7 @@ def generate_qa_from_problem(
     # Extract individual latents
     z2 = latent_list[1]  # Position 1 - step 1
     z4 = latent_list[3]  # Position 3 - step 2
+    z5 = latent_list[4]  # Position 4 - maybe step 3?
     z6 = latent_list[5]  # Position 5 - step 3/final
     
     # =========================================================================
@@ -197,6 +198,21 @@ def generate_qa_from_problem(
         ))
     
     # -------------------------------------------------------------------------
+    # SINGLE z5 (position 4): Step 3 / Final answer questions
+    # -------------------------------------------------------------------------
+    for q in STEP3_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=str(step3),
+            latent_vectors=[z5],
+            latent_positions=[4],
+            question_type="extraction_step3_z5_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+    
+    # -------------------------------------------------------------------------
     # SINGLE z6 (position 5): Step 3 / Final answer questions
     # -------------------------------------------------------------------------
     for q in STEP3_QUESTIONS:
@@ -206,7 +222,7 @@ def generate_qa_from_problem(
             answer=str(step3),
             latent_vectors=[z6],
             latent_positions=[5],
-            question_type="extraction_step3_single",
+            question_type="extraction_step3_z6_single",
             source_prompt="synthetic_3step",
             is_multi_latent=False,
         ))
