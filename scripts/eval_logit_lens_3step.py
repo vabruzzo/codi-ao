@@ -262,7 +262,15 @@ def main():
             "avg_rank": 0,
             "ranks": [],
         },
-        "step3_extraction": {
+        "step3_extraction_z5": {
+            "top_k_correct": 0,
+            "top_1_correct": 0,
+            "total": 0,
+            "avg_target_prob": 0,
+            "avg_rank": 0,
+            "ranks": [],
+        },
+        "step3_extraction_z6": {
             "top_k_correct": 0,
             "top_1_correct": 0,
             "total": 0,
@@ -296,6 +304,7 @@ def main():
         
         z2 = latent_result.latent_vectors[1]  # Position 1 - step 1
         z4 = latent_result.latent_vectors[3]  # Position 3 - step 2
+        z5 = latent_result.latent_vectors[4]  # Position 4 - maybe step 3?
         z6 = latent_result.latent_vectors[5]  # Position 5 - step 3
         
         step1 = problem["step1"]
@@ -332,18 +341,32 @@ def main():
             results["step2_extraction"]["ranks"].append(analysis["target_rank"])
         
         # =====================================================================
+        # STEP 3 / FINAL ANSWER EXTRACTION (from z5)
+        # =====================================================================
+        analysis = analyze_latent_for_number(codi, z5, step3, args.top_k)
+        
+        results["step3_extraction_z5"]["total"] += 1
+        if analysis["target_in_top_k"]:
+            results["step3_extraction_z5"]["top_k_correct"] += 1
+        if analysis["top_1_correct"]:
+            results["step3_extraction_z5"]["top_1_correct"] += 1
+        results["step3_extraction_z5"]["avg_target_prob"] += analysis["target_prob"]
+        if analysis["target_rank"]:
+            results["step3_extraction_z5"]["ranks"].append(analysis["target_rank"])
+        
+        # =====================================================================
         # STEP 3 / FINAL ANSWER EXTRACTION (from z6)
         # =====================================================================
         analysis = analyze_latent_for_number(codi, z6, step3, args.top_k)
         
-        results["step3_extraction"]["total"] += 1
+        results["step3_extraction_z6"]["total"] += 1
         if analysis["target_in_top_k"]:
-            results["step3_extraction"]["top_k_correct"] += 1
+            results["step3_extraction_z6"]["top_k_correct"] += 1
         if analysis["top_1_correct"]:
-            results["step3_extraction"]["top_1_correct"] += 1
-        results["step3_extraction"]["avg_target_prob"] += analysis["target_prob"]
+            results["step3_extraction_z6"]["top_1_correct"] += 1
+        results["step3_extraction_z6"]["avg_target_prob"] += analysis["target_prob"]
         if analysis["target_rank"]:
-            results["step3_extraction"]["ranks"].append(analysis["target_rank"])
+            results["step3_extraction_z6"]["ranks"].append(analysis["target_rank"])
         
         # =====================================================================
         # OPERATION DETECTION (from z2)
@@ -366,7 +389,7 @@ def main():
         results["operation_detection"]["confusion"][op][pred] += 1
     
     # Calculate averages
-    for key in ["step1_extraction", "step2_extraction", "step3_extraction"]:
+    for key in ["step1_extraction", "step2_extraction", "step3_extraction_z5", "step3_extraction_z6"]:
         total = results[key]["total"]
         if total > 0:
             results[key]["avg_target_prob"] /= total
@@ -388,7 +411,8 @@ def main():
     for key, label in [
         ("step1_extraction", "Step 1 (z2)"),
         ("step2_extraction", "Step 2 (z4)"),
-        ("step3_extraction", "Step 3 (z6)"),
+        ("step3_extraction_z5", "Step 3 / Final (z5)"),
+        ("step3_extraction_z6", "Step 3 / Final (z6)"),
     ]:
         r = results[key]
         print(f"\n{label}:")
@@ -427,7 +451,8 @@ def main():
     for key, label in [
         ("step1_extraction", "Step 1 (z2)"),
         ("step2_extraction", "Step 2 (z4)"),
-        ("step3_extraction", "Step 3 / Final (z6)"),
+        ("step3_extraction_z5", "Step 3 / Final (z5)"),
+        ("step3_extraction_z6", "Step 3 / Final (z6)"),
     ]:
         r = results[key]
         top_k_acc = pct(r["top_k_correct"], r["total"])
@@ -440,7 +465,7 @@ def main():
     
     # Save results
     # Remove ranks list for cleaner JSON (can be very large)
-    for key in ["step1_extraction", "step2_extraction", "step3_extraction"]:
+    for key in ["step1_extraction", "step2_extraction", "step3_extraction_z5", "step3_extraction_z6"]:
         del results[key]["ranks"]
     
     output_path = Path(args.output)
