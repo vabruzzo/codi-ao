@@ -96,7 +96,8 @@ def main():
     
     # Load problems
     with open(args.problems) as f:
-        all_problems = json.load(f)
+        data = json.load(f)
+    all_problems = data["problems"]
     
     # Use last n_test as held-out (same as main eval)
     test_problems = all_problems[-args.n_test:]
