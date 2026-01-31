@@ -36,17 +36,19 @@ This project investigates whether **Activation Oracles** can extract information
 
 **Note on Step 2 extraction**: The lower accuracy (59.5%) reflects that z4 is less cleanly structured than z2 (consistent with prior work). The AO still *understands* z4 semantically (100% on comparison), but struggles with exact numeric extraction from it.
 
-### Why Logit Lens Fails
+### Logit Lens Results
 
 Logit Lens projects the latent vector to the vocabulary space and sums probabilities of operation-related tokens ("add", "subtract", "multiply", etc.).
 
-1. **Always predicts "add"**: Achieves 97.3% accuracy on addition but only 31.3% on subtraction. It defaults to "add" regardless of true operation because "add" tokens have higher baseline probability.
+**What we observed**:
 
-2. **Confidence is near-zero**: Only ~0.12% average probability mass lands on operation tokens. The top-10 tokens are numbers like "4", "four", "04" - not operations. Operation tokens appear in top-10 only 6.5% of the time, and subtraction tokens **never** appear.
+1. **Heavy bias toward "add"**: 97.3% accuracy on addition but only 31.3% on subtraction
+2. **Very low confidence**: Only ~0.12% average probability mass on operation tokens
+3. **Operation tokens rarely surface**: Top-10 tokens are mostly numbers ("4", "four", "04"). Operation tokens appear in top-10 only 6.5% of the time; subtraction tokens never appear
 
-3. **Wrong representation space**: Operations aren't encoded as literal text tokens - they're in a distributed representation that requires a learned decoder (like the AO) to extract.
+The Activation Oracle achieves **99.5%** with balanced per-operation performance (100% add, 98.6% sub, 100% mul).
 
-The Activation Oracle's non-linear decoder achieves **99.5%** accuracy with balanced performance (100% add, 98.6% sub, 100% mul).
+**Interpretation**: The operation information appears to be present in z2 (given the AO can extract it), but is not accessible via direct vocabulary projection. Whether this is due to non-linear encoding, interference from numeric information, or other factors is unclear from this experiment alone.
 
 ## Background
 
@@ -194,11 +196,11 @@ codi-ao/
 
 ## Key Findings
 
-1. **AO dramatically outperforms Logit Lens on operation detection** - 99.5% vs 60.1%, with balanced accuracy across all operations
-2. **Logit Lens is heavily biased** - 97% on addition but only 31% on subtraction; operation tokens appear in top-10 only 6.5% of the time
-3. **Operations are not encoded as literal tokens** - they're in a distributed representation that requires learned decoding
-4. **z2 encodes cleaner than z4** - Step 1 extraction: 97.5%, Step 2 extraction: 59.5% (consistent with prior work)
-5. **AO understands z4 semantically** - 100% on comparison task despite lower extraction accuracy
+1. **AO outperforms Logit Lens on operation detection** - 99.5% vs 60.1%, with balanced accuracy across all operations
+2. **Logit Lens is heavily biased toward "add"** - 97% on addition but only 31% on subtraction; operation tokens appear in top-10 only 6.5% of the time
+3. **Operation information is present but not via token probabilities** - The AO can extract it, but Logit Lens cannot
+4. **z2 yields higher extraction accuracy than z4** - Step 1: 97.5%, Step 2: 59.5% (consistent with prior work)
+5. **AO performs well on z4 for comparison** - 100% on "which step is larger?" despite lower numeric extraction
 
 ## References
 
