@@ -90,8 +90,7 @@ def load_ao_model(checkpoint_dir: str):
         lora_alpha=128,
     )
     
-    ao = ActivationOracle.from_pretrained(config=config)
-    ao.load_lora(checkpoint_dir)
+    ao = ActivationOracle.from_pretrained(config=config, lora_path=checkpoint_dir)
     ao.eval_mode()
     
     return ao
