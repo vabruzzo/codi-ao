@@ -12,21 +12,58 @@ import argparse
 import json
 import re
 import torch
+import yaml
 from pathlib import Path
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.activation_oracle import ActivationOracle, AOConfig, AOPrompt
+from src.activation_oracle import ActivationOracle, AOConfig
 from src.codi_wrapper import CODIWrapper
 
 
-def ao_generate(ao: ActivationOracle, question: str, latent_vectors: list, max_new_tokens: int = 20) -> str:
-    """Helper to generate AO response with proper prompt construction."""
-    prompt = ao.create_prompt(
-        question=question,
-        activation_vectors=latent_vectors
+def load_codi_model(config_path="configs/default.yaml"):
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    codi = CODIWrapper.from_pretrained(
+        checkpoint_path=config["model"]["codi_checkpoint"],
+        model_name_or_path=config["model"]["codi_base_model"],
+        lora_r=config["model"]["codi_lora_r"],
+        lora_alpha=config["model"]["codi_lora_alpha"],
+        num_latent=config["model"]["codi_num_latent"],
+        use_prj=config["model"]["codi_use_prj"],
+        device=device,
     )
+    return codi
+
+
+def load_ao_model(checkpoint_dir: str):
+    config = AOConfig(
+        model_name="meta-llama/Llama-3.2-1B-Instruct",
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        lora_r=64,
+        lora_alpha=128,
+    )
+    
+    ao = ActivationOracle.from_pretrained(config=config, lora_path=checkpoint_dir)
+    ao.eval_mode()
+    return ao
+
+
+def ao_generate(ao, question: str, latent_vectors: list, max_new_tokens: int = 20) -> str:
+    """Helper to generate AO response with proper prompt construction."""
+    # Convert latent vectors to tensors if needed
+    vectors = []
+    for v in latent_vectors:
+        if isinstance(v, torch.Tensor):
+            vectors.append(v)
+        else:
+            vectors.append(torch.tensor(v))
+    
+    prompt = ao.create_prompt(question=question, activation_vectors=vectors)
     return ao.generate(prompt=prompt, max_new_tokens=max_new_tokens, temperature=0)
 
 
@@ -108,13 +145,10 @@ def main():
     print(f"Device: {device}")
     
     print("\nLoading CODI model...")
-    codi = CODIWrapper(device=device)
+    codi = load_codi_model()
     
     print("Loading Activation Oracle...")
-    config = AOConfig()
-    ao = ActivationOracle(config)
-    ao.load_checkpoint(args.checkpoint)
-    ao.model.eval()
+    ao = load_ao_model(args.checkpoint)
     
     # Questions to test
     questions = {
@@ -143,8 +177,8 @@ def main():
         step1 = problem["step1"]
         
         # Collect latents
-        latent_result = codi.collect_latents(problem["prompt"])
-        z2 = latent_result["latent_vectors"][1]  # z2 = index 1
+        latent_result = codi.collect_latents(problem["prompt"], return_hidden_states=False)
+        z2 = latent_result.latent_vectors[1]  # z2 = index 1
         
         # Test first operand
         response = ao_generate(ao, questions["first_operand"], [z2])
