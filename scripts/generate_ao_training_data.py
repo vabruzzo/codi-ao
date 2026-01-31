@@ -299,6 +299,7 @@ def main():
     parser.add_argument("--problems", type=str, default="data/synthetic_problems.json")
     parser.add_argument("--output", type=str, default="data/ao_training_data.jsonl")
     parser.add_argument("--n_problems", type=int, default=None, help="Limit problems")
+    parser.add_argument("--holdout", type=int, default=200, help="Hold out last N problems for testing")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     
@@ -314,10 +315,15 @@ def main():
         data = json.load(f)
     problems = data["problems"]
     
+    # Hold out last N problems for testing
+    if args.holdout > 0:
+        problems = problems[:-args.holdout]
+        print(f"Holding out last {args.holdout} problems for testing")
+    
     if args.n_problems:
         problems = problems[:args.n_problems]
     
-    print(f"Using {len(problems)} problems")
+    print(f"Using {len(problems)} problems for training")
     
     # Count operations
     op_counts = {}

@@ -434,12 +434,19 @@ def main():
     
     # 3. Operation - Direct (z2)
     print("\n--- Operation Direct (z2) ---")
-    results["operation_direct"] = evaluate_operation_direct(ao, problems, all_latents, position=1)
-    print(f"  Accuracy: {results['operation_direct']['accuracy']:.1f}%")
-    for op, data in results["operation_direct"]["per_op"].items():
+    results["operation_direct_z2"] = evaluate_operation_direct(ao, problems, all_latents, position=1)
+    print(f"  Accuracy: {results['operation_direct_z2']['accuracy']:.1f}%")
+    for op, data in results["operation_direct_z2"]["per_op"].items():
         print(f"    {op}: {data['accuracy']:.1f}%")
     
-    # 4. Operation - Binary (z2)
+    # 4. Operation - Direct (z4)
+    print("\n--- Operation Direct (z4) ---")
+    results["operation_direct_z4"] = evaluate_operation_direct(ao, problems, all_latents, position=3)
+    print(f"  Accuracy: {results['operation_direct_z4']['accuracy']:.1f}%")
+    for op, data in results["operation_direct_z4"]["per_op"].items():
+        print(f"    {op}: {data['accuracy']:.1f}%")
+    
+    # 5. Operation - Binary (z2)
     print("\n--- Operation Binary (z2) ---")
     results["operation_binary"] = evaluate_operation_binary(ao, problems, all_latents, position=1)
     print(f"  Accuracy: {results['operation_binary']['accuracy']:.1f}%")

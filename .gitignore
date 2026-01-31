@@ -5,15 +5,13 @@ build/
 dist/
 wheels/
 *.egg-info
-
+.python-version
 # references/
 
 # Virtual environments
 .venv
 venv/
 env/
-
-references/
 
 # Type checking
 .mypy_cache/
