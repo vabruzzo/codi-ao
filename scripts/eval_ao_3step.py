@@ -275,6 +275,13 @@ def main():
         # STEP 1 EXTRACTION
         # =====================================================================
         
+        # Problem context for examples
+        problem_ctx = {
+            "prompt": problem["prompt"][:150],
+            "X": X, "Y": Y, "Z": problem.get("Z"),
+            "op": op, "step1": step1, "step2": step2, "step3": step3
+        }
+        
         # Single z2
         resp = ao_generate(ao, AOPrompt, [z2], [1], step1_q)
         pred = extract_number(resp)
@@ -282,14 +289,24 @@ def main():
         results["extraction_step1_single"]["total"] += 1
         if correct:
             results["extraction_step1_single"]["correct"] += 1
+        if len(results["extraction_step1_single"]["examples"]) < 10:
+            results["extraction_step1_single"]["examples"].append({
+                "problem": problem_ctx, "question": step1_q, "latent_positions": [1],
+                "true": step1, "response": resp, "parsed": pred, "correct": correct
+            })
         
         # Multi (all 6)
-        resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], step1_q)
-        pred = extract_number(resp)
-        correct = (pred == step1)
+        resp_multi = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], step1_q)
+        pred_multi = extract_number(resp_multi)
+        correct_multi = (pred_multi == step1)
         results["extraction_step1_multi"]["total"] += 1
-        if correct:
+        if correct_multi:
             results["extraction_step1_multi"]["correct"] += 1
+        if len(results["extraction_step1_multi"]["examples"]) < 10:
+            results["extraction_step1_multi"]["examples"].append({
+                "problem": problem_ctx, "question": step1_q, "latent_positions": [0,1,2,3,4,5],
+                "true": step1, "response": resp_multi, "parsed": pred_multi, "correct": correct_multi
+            })
         
         # =====================================================================
         # STEP 2 EXTRACTION
@@ -302,6 +319,11 @@ def main():
         results["extraction_step2_single"]["total"] += 1
         if correct:
             results["extraction_step2_single"]["correct"] += 1
+        if len(results["extraction_step2_single"]["examples"]) < 10:
+            results["extraction_step2_single"]["examples"].append({
+                "problem": problem_ctx, "question": step2_q, "latent_positions": [3],
+                "true": step2, "response": resp, "parsed": pred, "correct": correct
+            })
         
         # Multi (all 6)
         resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], step2_q)
@@ -310,6 +332,11 @@ def main():
         results["extraction_step2_multi"]["total"] += 1
         if correct:
             results["extraction_step2_multi"]["correct"] += 1
+        if len(results["extraction_step2_multi"]["examples"]) < 10:
+            results["extraction_step2_multi"]["examples"].append({
+                "problem": problem_ctx, "question": step2_q, "latent_positions": [0,1,2,3,4,5],
+                "true": step2, "response": resp, "parsed": pred, "correct": correct
+            })
         
         # =====================================================================
         # STEP 3 / FINAL ANSWER EXTRACTION
@@ -322,6 +349,11 @@ def main():
         results["extraction_step3_z5_single"]["total"] += 1
         if correct:
             results["extraction_step3_z5_single"]["correct"] += 1
+        if len(results["extraction_step3_z5_single"]["examples"]) < 10:
+            results["extraction_step3_z5_single"]["examples"].append({
+                "problem": problem_ctx, "question": step3_q, "latent_positions": [4],
+                "true": step3, "response": resp, "parsed": pred, "correct": correct
+            })
         
         # Single z6
         resp = ao_generate(ao, AOPrompt, [z6], [5], step3_q)
@@ -330,6 +362,11 @@ def main():
         results["extraction_step3_z6_single"]["total"] += 1
         if correct:
             results["extraction_step3_z6_single"]["correct"] += 1
+        if len(results["extraction_step3_z6_single"]["examples"]) < 10:
+            results["extraction_step3_z6_single"]["examples"].append({
+                "problem": problem_ctx, "question": step3_q, "latent_positions": [5],
+                "true": step3, "response": resp, "parsed": pred, "correct": correct
+            })
         
         # Multi (all 6)
         resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], step3_q)
@@ -338,6 +375,11 @@ def main():
         results["extraction_step3_multi"]["total"] += 1
         if correct:
             results["extraction_step3_multi"]["correct"] += 1
+        if len(results["extraction_step3_multi"]["examples"]) < 10:
+            results["extraction_step3_multi"]["examples"].append({
+                "problem": problem_ctx, "question": step3_q, "latent_positions": [0,1,2,3,4,5],
+                "true": step3, "response": resp, "parsed": pred, "correct": correct
+            })
         
         # =====================================================================
         # OPERATION DETECTION
@@ -404,6 +446,7 @@ def main():
         # =====================================================================
         
         expected_op_sym = op_symbols[op]
+        true_calc = f"{X} {expected_op_sym} {Y} = {step1}"
         
         # Single
         resp = ao_generate(ao, AOPrompt, [z2], [1], full_calc_q)
@@ -412,6 +455,8 @@ def main():
         results["full_calc_single_strict"]["total"] += 1
         results["full_calc_single_semantic"]["total"] += 1
         
+        strict_correct = False
+        semantic_correct = False
         if parsed:
             pX, pOp, pY, pResult = parsed
             # Strict: exact operands
@@ -424,22 +469,44 @@ def main():
             if semantic_correct:
                 results["full_calc_single_semantic"]["correct"] += 1
         
+        # Store examples for single
+        if "examples" not in results["full_calc_single_strict"]:
+            results["full_calc_single_strict"]["examples"] = []
+        if len(results["full_calc_single_strict"]["examples"]) < 10:
+            results["full_calc_single_strict"]["examples"].append({
+                "problem": problem_ctx, "question": full_calc_q, "latent_positions": [1],
+                "true": true_calc, "response": resp, "parsed": parsed,
+                "strict": strict_correct, "semantic": semantic_correct
+            })
+        
         # Multi
-        resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], full_calc_q)
-        parsed = extract_calculation(resp)
+        resp_multi = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], full_calc_q)
+        parsed_multi = extract_calculation(resp_multi)
         
         results["full_calc_multi_strict"]["total"] += 1
         results["full_calc_multi_semantic"]["total"] += 1
         
-        if parsed:
-            pX, pOp, pY, pResult = parsed
-            strict_correct = (pX == X and pY == Y and pOp == expected_op_sym)
-            semantic_correct = (pOp == expected_op_sym and pResult == step1)
+        strict_correct_multi = False
+        semantic_correct_multi = False
+        if parsed_multi:
+            pX, pOp, pY, pResult = parsed_multi
+            strict_correct_multi = (pX == X and pY == Y and pOp == expected_op_sym)
+            semantic_correct_multi = (pOp == expected_op_sym and pResult == step1)
             
-            if strict_correct:
+            if strict_correct_multi:
                 results["full_calc_multi_strict"]["correct"] += 1
-            if semantic_correct:
+            if semantic_correct_multi:
                 results["full_calc_multi_semantic"]["correct"] += 1
+        
+        # Store examples for multi
+        if "examples" not in results["full_calc_multi_strict"]:
+            results["full_calc_multi_strict"]["examples"] = []
+        if len(results["full_calc_multi_strict"]["examples"]) < 10:
+            results["full_calc_multi_strict"]["examples"].append({
+                "problem": problem_ctx, "question": full_calc_q, "latent_positions": [0,1,2,3,4,5],
+                "true": true_calc, "response": resp_multi, "parsed": parsed_multi,
+                "strict": strict_correct_multi, "semantic": semantic_correct_multi
+            })
         
         # =====================================================================
         # COMPARISON (multi only)
