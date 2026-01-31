@@ -135,11 +135,22 @@ def main():
     parser.add_argument("--problems", type=str, default="data/synthetic_problems.json")
     parser.add_argument("--n_test", type=int, default=200)
     parser.add_argument("--output", type=str, default="results/ao_all6_evaluation.json")
+    parser.add_argument("--shuffle", action="store_true", 
+                        help="Shuffle latent-to-problem mapping (sanity check - should crash accuracy)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for shuffling")
     args = parser.parse_args()
     
     print("=" * 60)
-    print("Combined AO Evaluation (All 6 Latents)")
+    if args.shuffle:
+        print("Combined AO Evaluation (All 6 Latents) - SHUFFLED SANITY CHECK")
+    else:
+        print("Combined AO Evaluation (All 6 Latents)")
     print("=" * 60)
+    
+    if args.shuffle:
+        print("\n*** SHUFFLE MODE: Latents will be mismatched with problems ***")
+        print("*** Expected: accuracy should crash to near-random ***\n")
+        random.seed(args.seed)
     
     # Load problems
     with open(args.problems) as f:
@@ -158,8 +169,29 @@ def main():
     print("Loading Activation Oracle...")
     ao = load_ao_model(args.checkpoint)
     
+    # First pass: collect all latents
+    print("\nCollecting latents for all test problems...")
+    all_latents_list = []
+    valid_problems = []
+    for problem in tqdm(test_problems, desc="Collecting latents"):
+        result = codi.collect_latents(problem["prompt"], return_hidden_states=False)
+        if len(result.latent_vectors) >= 6:
+            all_latents_list.append(result.latent_vectors[:6])
+            valid_problems.append(problem)
+    
+    print(f"Collected latents for {len(valid_problems)} problems")
+    
+    # Shuffle if requested
+    if args.shuffle:
+        print("Shuffling latent-to-problem mapping...")
+        indices = list(range(len(all_latents_list)))
+        random.shuffle(indices)
+        all_latents_list = [all_latents_list[i] for i in indices]
+        print(f"Shuffled with seed {args.seed}")
+    
     # Results storage
     results = {
+        "config": {"shuffle": args.shuffle, "seed": args.seed if args.shuffle else None},
         "extraction_step1": {"correct": 0, "total": 0, "predictions": []},
         "extraction_step2": {"correct": 0, "total": 0, "predictions": []},
         "operation_direct": {"correct": 0, "total": 0, "predictions": [], "per_op": {}},
@@ -175,14 +207,9 @@ def main():
     print("\nRunning evaluations...")
     print("-" * 60)
     
-    for i, problem in enumerate(tqdm(test_problems, desc="Evaluating")):
-        # Collect all 6 latents
-        result = codi.collect_latents(problem["prompt"], return_hidden_states=False)
-        if len(result.latent_vectors) < 6:
-            continue
-        all_latents = result.latent_vectors[:6]
-        
-        # Ground truth
+    for i, (problem, all_latents) in enumerate(tqdm(zip(valid_problems, all_latents_list), 
+                                                      desc="Evaluating", total=len(valid_problems))):
+        # Ground truth (from problem, may not match latents if shuffled!)
         X = problem["X"]
         Y = problem["Y"]
         op = problem["operation"]
