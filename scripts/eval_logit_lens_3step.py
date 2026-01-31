@@ -110,37 +110,40 @@ def analyze_latent_for_number(
     - target_rank: Rank of target (if found)
     - target_prob: Probability of target tokens
     """
-    # Get logits via logit lens
-    logits = codi.logit_lens(latent_vector)
-    probs = torch.softmax(logits, dim=-1)
+    # Get logit lens result (returns LogitLensResult object)
+    result = codi.logit_lens(latent_vector, top_k=top_k)
     
-    # Get top K
-    top_k_probs, top_k_indices = torch.topk(probs, top_k)
-    top_k_tokens = [codi.tokenizer.decode([idx]) for idx in top_k_indices.tolist()]
+    # Extract from result
+    layer_result = result.layer_results[0]
+    top_tokens = layer_result["top_tokens"]
+    top_probs = layer_result["top_probs"]
+    top_indices = layer_result["top_indices"]
     
     # Get target token IDs
     target_ids = get_number_token_ids(codi.tokenizer, target_number)
     
     # Check if target is in top K
-    top_k_set = set(top_k_indices.tolist())
+    top_k_set = set(top_indices)
     target_in_top_k = any(tid in top_k_set for tid in target_ids)
     
-    # Get target probability (sum of all target token probs)
-    target_prob = sum(probs[tid].item() for tid in target_ids if tid < len(probs))
+    # Get target probability from top-k if present
+    target_prob = 0.0
+    for idx, prob in zip(top_indices, top_probs):
+        if idx in target_ids:
+            target_prob += prob
     
-    # Find rank of target
-    sorted_indices = torch.argsort(probs, descending=True)
+    # Find rank of target within top-k
     target_rank = None
-    for rank, idx in enumerate(sorted_indices.tolist()):
+    for rank, idx in enumerate(top_indices):
         if idx in target_ids:
             target_rank = rank + 1
             break
     
     # Check top 1
-    top_1_correct = top_k_indices[0].item() in target_ids
+    top_1_correct = top_indices[0] in target_ids
     
     return {
-        "top_k_tokens": list(zip(top_k_tokens, top_k_probs.tolist())),
+        "top_k_tokens": list(zip(top_tokens, top_probs)),
         "target_in_top_k": target_in_top_k,
         "top_1_correct": top_1_correct,
         "target_rank": target_rank,
@@ -157,33 +160,53 @@ def analyze_latent_for_operation(
     """
     Analyze a latent vector using Logit Lens to check for operation.
     """
-    # Get logits via logit lens
-    logits = codi.logit_lens(latent_vector)
-    probs = torch.softmax(logits, dim=-1)
+    # Get logit lens result
+    result = codi.logit_lens(latent_vector, top_k=top_k)
     
-    # Get top K
-    top_k_probs, top_k_indices = torch.topk(probs, top_k)
-    top_k_tokens = [codi.tokenizer.decode([idx]) for idx in top_k_indices.tolist()]
+    # Extract from result
+    layer_result = result.layer_results[0]
+    top_tokens = layer_result["top_tokens"]
+    top_probs = layer_result["top_probs"]
+    top_indices = layer_result["top_indices"]
     
     # Get operation token IDs
     op_token_ids = get_operation_token_ids(codi.tokenizer)
     target_ids = op_token_ids.get(target_op, [])
     
     # Check if target is in top K
-    top_k_set = set(top_k_indices.tolist())
+    top_k_set = set(top_indices)
     target_in_top_k = any(tid in top_k_set for tid in target_ids)
     
-    # Get probability for each operation
-    op_probs = {}
-    for op, ids in op_token_ids.items():
-        op_probs[op] = sum(probs[tid].item() for tid in ids if tid < len(probs))
+    # Get probability for each operation from top-k
+    op_probs = {"add": 0.0, "sub": 0.0, "mul": 0.0}
+    for idx, prob in zip(top_indices, top_probs):
+        for op, ids in op_token_ids.items():
+            if idx in ids:
+                op_probs[op] += prob
     
-    # Predicted operation (highest prob)
-    predicted_op = max(op_probs, key=op_probs.get)
+    # Predicted operation (highest prob among detected)
+    # If no operation tokens in top-k, use "add" as default
+    if sum(op_probs.values()) > 0:
+        predicted_op = max(op_probs, key=op_probs.get)
+    else:
+        # Fall back to checking if any op keywords appear in top tokens
+        predicted_op = "add"  # Default
+        for token in top_tokens:
+            token_lower = token.lower().strip()
+            if any(kw in token_lower for kw in ["sub", "minus", "-"]):
+                predicted_op = "sub"
+                break
+            elif any(kw in token_lower for kw in ["mul", "times", "*", "×"]):
+                predicted_op = "mul"
+                break
+            elif any(kw in token_lower for kw in ["add", "plus", "+"]):
+                predicted_op = "add"
+                break
+    
     correct = (predicted_op == target_op)
     
     return {
-        "top_k_tokens": list(zip(top_k_tokens, top_k_probs.tolist())),
+        "top_k_tokens": list(zip(top_tokens, top_probs)),
         "target_in_top_k": target_in_top_k,
         "op_probs": op_probs,
         "predicted_op": predicted_op,
