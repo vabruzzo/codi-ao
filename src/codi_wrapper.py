@@ -276,9 +276,10 @@ class CODIWrapper:
                 vec = lv.squeeze(0).squeeze(0).cpu()
                 latent_vectors_post_prj.append(vec)
 
-        # Decode predicted answer
+        # Decode predicted answer (strip prompt to only get the generated portion)
+        generated_ids = output["sequences"][0][input_ids.shape[1]:]
         predicted_answer = self.tokenizer.decode(
-            output["sequences"][0], skip_special_tokens=True
+            generated_ids, skip_special_tokens=True
         ).strip()
 
         # Check correctness

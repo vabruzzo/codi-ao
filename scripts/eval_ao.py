@@ -433,20 +433,18 @@ def main():
     print(f"  Accuracy: {results['extraction_step2']['accuracy']:.1f}%")
     
     # 3. Operation - Direct (z2)
+    # Note: We only evaluate operation on z2 because z2 encodes step1's operation.
+    # z4 encodes step2's result, but step2's operation is different:
+    # - add/sub problems: step2 = step1 * Z (multiplication)
+    # - mul problems: step2 = step1 + Z (addition)
+    # Evaluating z4 with the step1 operation label would be incorrect.
     print("\n--- Operation Direct (z2) ---")
-    results["operation_direct_z2"] = evaluate_operation_direct(ao, problems, all_latents, position=1)
-    print(f"  Accuracy: {results['operation_direct_z2']['accuracy']:.1f}%")
-    for op, data in results["operation_direct_z2"]["per_op"].items():
+    results["operation_direct"] = evaluate_operation_direct(ao, problems, all_latents, position=1)
+    print(f"  Accuracy: {results['operation_direct']['accuracy']:.1f}%")
+    for op, data in results["operation_direct"]["per_op"].items():
         print(f"    {op}: {data['accuracy']:.1f}%")
     
-    # 4. Operation - Direct (z4)
-    print("\n--- Operation Direct (z4) ---")
-    results["operation_direct_z4"] = evaluate_operation_direct(ao, problems, all_latents, position=3)
-    print(f"  Accuracy: {results['operation_direct_z4']['accuracy']:.1f}%")
-    for op, data in results["operation_direct_z4"]["per_op"].items():
-        print(f"    {op}: {data['accuracy']:.1f}%")
-    
-    # 5. Operation - Binary (z2)
+    # 4. Operation - Binary (z2)
     print("\n--- Operation Binary (z2) ---")
     results["operation_binary"] = evaluate_operation_binary(ao, problems, all_latents, position=1)
     print(f"  Accuracy: {results['operation_binary']['accuracy']:.1f}%")
@@ -469,26 +467,26 @@ def main():
     print("=" * 60)
     print(f"{'Task':<25} {'Accuracy':>10}")
     print("-" * 35)
-    print(f"{'Extraction Step 1':<25} {results['extraction_step1']['accuracy']:>9.1f}%")
-    print(f"{'Extraction Step 2':<25} {results['extraction_step2']['accuracy']:>9.1f}%")
-    print(f"{'Operation Direct':<25} {results['operation_direct']['accuracy']:>9.1f}%")
-    print(f"{'Operation Binary':<25} {results['operation_binary']['accuracy']:>9.1f}%")
-    print(f"{'Magnitude':<25} {results['magnitude_step1']['accuracy']:>9.1f}%")
+    print(f"{'Extraction Step 1 (z2)':<25} {results['extraction_step1']['accuracy']:>9.1f}%")
+    print(f"{'Extraction Step 2 (z4)':<25} {results['extraction_step2']['accuracy']:>9.1f}%")
+    print(f"{'Operation Direct (z2)':<25} {results['operation_direct']['accuracy']:>9.1f}%")
+    print(f"{'Operation Binary (z2)':<25} {results['operation_binary']['accuracy']:>9.1f}%")
+    print(f"{'Magnitude (z2)':<25} {results['magnitude_step1']['accuracy']:>9.1f}%")
     print(f"{'Comparison (multi)':<25} {results['comparison']['accuracy']:>9.1f}%")
     
     # Add summary section to results
     results["summary"] = {
-        "extraction_step1": {
+        "extraction_step1_z2": {
             "accuracy": results["extraction_step1"]["accuracy"],
             "correct": results["extraction_step1"]["correct"],
             "total": results["extraction_step1"]["total"],
         },
-        "extraction_step2": {
+        "extraction_step2_z4": {
             "accuracy": results["extraction_step2"]["accuracy"],
             "correct": results["extraction_step2"]["correct"],
             "total": results["extraction_step2"]["total"],
         },
-        "operation_direct": {
+        "operation_direct_z2": {
             "accuracy": results["operation_direct"]["accuracy"],
             "correct": results["operation_direct"]["correct"],
             "total": results["operation_direct"]["total"],
@@ -497,12 +495,12 @@ def main():
                 for op, data in results["operation_direct"]["per_op"].items()
             },
         },
-        "operation_binary": {
+        "operation_binary_z2": {
             "accuracy": results["operation_binary"]["accuracy"],
             "correct": results["operation_binary"]["correct"],
             "total": results["operation_binary"]["total"],
         },
-        "magnitude": {
+        "magnitude_z2": {
             "accuracy": results["magnitude_step1"]["accuracy"],
             "correct": results["magnitude_step1"]["correct"],
             "total": results["magnitude_step1"]["total"],

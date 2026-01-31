@@ -62,15 +62,41 @@ From the [Activation Oracles paper](https://arxiv.org/abs/2311.07328): A separat
 
 ## Methodology
 
-### Training Data
+### Data Generation
 
-1. **3,000 synthetic math problems** (balanced add/sub/mul)
-2. **Collect CODI latents** for each problem
-3. **Generate diverse QA pairs** (~120k examples):
-   - Numeric extraction: "What value was computed?"
-   - Operation classification: "What operation was performed?"
-   - Magnitude: "Is the result greater than 50?"
-   - Comparison (multi-latent): "Which step is larger?"
+- **1,200 synthetic math problems**: Seeded generation (seed=42) with balanced operations (add/sub/mul)
+- **Train/test split**: 1,000 training / 200 held-out test problems
+- **Problem structure**: Each problem has two steps:
+  - `add`: step1 = X + Y, step2 = step1 * Z
+  - `sub`: step1 = X - Y, step2 = step1 * Z  
+  - `mul`: step1 = X * Y, step2 = step1 + Z
+
+### Latent Collection
+
+- **6 latent vectors** (z1-z6) collected from CODI's reasoning iterations
+- **z2 (index 1)**: Encodes Step 1 intermediate result
+- **z4 (index 3)**: Encodes Step 2 intermediate result
+- **Operation label**: Refers to **step1's operation only** (z2). We do not evaluate operation on z4 because step2's operation differs from the problem's operation label.
+
+### Training Data (~120k examples)
+
+From each problem, we generate diverse QA pairs:
+- Numeric extraction: "What value was computed?"
+- Operation classification: "What operation was performed?"
+- Magnitude: "Is the result greater than 50?"
+- Comparison (multi-latent): "Which step is larger?"
+
+### Logit Lens Baseline
+
+- **Layer norm applied**: We apply the model's final layer norm before projecting to vocabulary space (proper logit lens)
+- **Token matching**: Sum probability mass over operation-related tokens ("add", "addition", "plus", "+", etc.)
+- **Prediction**: Argmax over {add, sub, mul} total probabilities
+
+### Activation Oracle Evaluation
+
+- **Held-out test set**: 200 problems not seen during training
+- **Single question per task type**: Consistent evaluation across all problems
+- **No problem context**: The AO sees only the question and latent vector(s), not the original prompt
 
 ### Key Difference from Original AO Paper
 
@@ -89,49 +115,44 @@ uv sync
 
 ## Usage
 
-### 1. Generate Synthetic Problems
+### 1. Generate AO Training Data
 
-```bash
-python scripts/generate_synthetic_data.py \
-    --n_samples 3000 \
-    --seed 42 \
-    --output data/synthetic_problems.json
-```
-
-### 2. Generate AO Training Data
-
-Collects CODI latents and creates Q&A pairs:
+Generates synthetic problems, collects CODI latents, and creates Q&A pairs:
 
 ```bash
 python scripts/generate_ao_training_data.py \
-    --problems data/synthetic_problems.json \
-    --output data/ao_training_data.jsonl
+    --n-problems 1200 \
+    --output data/ao_training_data.json \
+    --holdout 200
 ```
 
-### 3. Run Logit Lens Baseline
+This creates 1,200 problems with 200 held out for testing.
+
+### 2. Run Logit Lens Baseline
 
 ```bash
 python scripts/eval_logit_lens_operation.py \
-    --data data/synthetic_problems.json \
+    --data data/ao_training_data.json \
     --output results/logit_lens_operation.json
 ```
 
-### 4. Train Activation Oracle
+### 3. Train Activation Oracle
 
 ```bash
 python scripts/train.py \
-    --data data/ao_training_data.jsonl \
-    --output_dir checkpoints/ao_study \
-    --epochs 2 \
-    --batch_size 16
+    --data data/ao_training_data.json \
+    --output checkpoints/ao_study \
+    --epochs 3 \
+    --batch-size 4
 ```
 
-### 5. Evaluate Activation Oracle
+### 4. Evaluate Activation Oracle
 
 ```bash
 python scripts/eval_ao.py \
     --checkpoint checkpoints/ao_study \
-    --problems data/synthetic_problems.json \
+    --problems data/ao_training_data.json \
+    --n-test 200 \
     --output results/ao_evaluation.json
 ```
 
@@ -142,10 +163,9 @@ codi-ao/
 ├── configs/
 │   └── default.yaml          # Model configuration
 ├── scripts/
-│   ├── generate_synthetic_data.py    # Generate math problems
-│   ├── generate_ao_training_data.py  # Create AO training data
+│   ├── generate_ao_training_data.py  # Generate problems + AO training data
 │   ├── train.py                      # Train Activation Oracle
-│   ├── eval_logit_lens_operation.py  # Logit Lens baseline
+│   ├── eval_logit_lens_operation.py  # Logit Lens baseline (z2 only)
 │   └── eval_ao.py                    # Evaluate trained AO
 ├── src/
 │   ├── activation_oracle.py   # AO model implementation
