@@ -50,11 +50,6 @@ COMPARISON_QUESTIONS = [
 ]
 
 
-def format_oracle_prompt(question: str, num_latents: int = 1) -> str:
-    placeholders = " ?" * num_latents
-    return f"Layer 50%:{placeholders} {question}"
-
-
 def op_to_name(op: str) -> str:
     return {"add": "addition", "sub": "subtraction", "mul": "multiplication"}[op]
 
@@ -149,6 +144,15 @@ def evaluate_extraction(ao, problems, latents, position: int, step: int):
             results["correct"] += 1
         
         results["predictions"].append({
+            "idx": i,
+            "problem_prompt": problem["prompt"],
+            "operation": problem["operation"],
+            "X": problem["X"],
+            "Y": problem["Y"],
+            "Z": problem["Z"],
+            "step1": problem["step1"],
+            "step2": problem["step2"],
+            "question": question,
             "true": true_value,
             "pred": pred_value,
             "response": response,
@@ -165,7 +169,7 @@ def evaluate_operation_direct(ao, problems, latents, position: int):
     
     question = random.choice(OPERATION_DIRECT)
     
-    for problem, latent_set in zip(problems, latents):
+    for i, (problem, latent_set) in enumerate(zip(problems, latents)):
         latent = latent_set[position]
         true_op = op_to_name(problem["operation"])
         
@@ -189,6 +193,14 @@ def evaluate_operation_direct(ao, problems, latents, position: int):
             results["per_op"][true_op]["correct"] += 1
         
         results["predictions"].append({
+            "idx": i,
+            "problem_prompt": problem["prompt"],
+            "X": problem["X"],
+            "Y": problem["Y"],
+            "Z": problem["Z"],
+            "step1": problem["step1"],
+            "step2": problem["step2"],
+            "question": question,
             "true": true_op,
             "pred": pred_op,
             "response": response,
@@ -207,7 +219,7 @@ def evaluate_operation_binary(ao, problems, latents, position: int):
     """Evaluate binary operation questions (is this X?)."""
     results = {"correct": 0, "total": 0, "per_op": defaultdict(lambda: {"correct": 0, "total": 0}), "predictions": []}
     
-    for problem, latent_set in zip(problems, latents):
+    for i, (problem, latent_set) in enumerate(zip(problems, latents)):
         latent = latent_set[position]
         true_op = op_to_name(problem["operation"])
         
@@ -230,6 +242,14 @@ def evaluate_operation_binary(ao, problems, latents, position: int):
                 results["per_op"][check_op]["correct"] += 1
             
             results["predictions"].append({
+                "idx": i,
+                "problem_prompt": problem["prompt"],
+                "X": problem["X"],
+                "Y": problem["Y"],
+                "Z": problem["Z"],
+                "step1": problem["step1"],
+                "step2": problem["step2"],
+                "question": question,
                 "true_op": true_op,
                 "check_op": check_op,
                 "true_answer": "yes" if true_yes else "no",
@@ -255,7 +275,7 @@ def evaluate_magnitude(ao, problems, latents, position: int, step: int):
         
         question = random.choice(questions)
         
-        for problem, latent_set in zip(problems, latents):
+        for i, (problem, latent_set) in enumerate(zip(problems, latents)):
             latent = latent_set[position]
             true_value = problem[f"step{step}"]
             true_yes = true_value > threshold
@@ -274,10 +294,20 @@ def evaluate_magnitude(ao, problems, latents, position: int, step: int):
                 results["per_threshold"][threshold]["correct"] += 1
             
             results["predictions"].append({
+                "idx": i,
+                "problem_prompt": problem["prompt"],
+                "operation": problem["operation"],
+                "X": problem["X"],
+                "Y": problem["Y"],
+                "Z": problem["Z"],
+                "step1": problem["step1"],
+                "step2": problem["step2"],
+                "question": question,
                 "value": true_value,
                 "threshold": threshold,
                 "true": "yes" if true_yes else "no",
                 "pred": "yes" if pred_yes else "no",
+                "response": response,
                 "correct": is_correct,
             })
     
@@ -295,7 +325,7 @@ def evaluate_comparison(ao, problems, latents):
     
     question = random.choice(COMPARISON_QUESTIONS)
     
-    for problem, latent_set in zip(problems, latents):
+    for i, (problem, latent_set) in enumerate(zip(problems, latents)):
         latent_z2 = latent_set[1]  # Step 1
         latent_z4 = latent_set[3]  # Step 2
         
@@ -321,6 +351,13 @@ def evaluate_comparison(ao, problems, latents):
             results["correct"] += 1
         
         results["predictions"].append({
+            "idx": i,
+            "problem_prompt": problem["prompt"],
+            "operation": problem["operation"],
+            "X": problem["X"],
+            "Y": problem["Y"],
+            "Z": problem["Z"],
+            "question": question,
             "step1": step1,
             "step2": step2,
             "true": true_answer,
@@ -431,6 +468,48 @@ def main():
     print(f"{'Operation Binary':<25} {results['operation_binary']['accuracy']:>9.1f}%")
     print(f"{'Magnitude':<25} {results['magnitude_step1']['accuracy']:>9.1f}%")
     print(f"{'Comparison (multi)':<25} {results['comparison']['accuracy']:>9.1f}%")
+    
+    # Add summary section to results
+    results["summary"] = {
+        "extraction_step1": {
+            "accuracy": results["extraction_step1"]["accuracy"],
+            "correct": results["extraction_step1"]["correct"],
+            "total": results["extraction_step1"]["total"],
+        },
+        "extraction_step2": {
+            "accuracy": results["extraction_step2"]["accuracy"],
+            "correct": results["extraction_step2"]["correct"],
+            "total": results["extraction_step2"]["total"],
+        },
+        "operation_direct": {
+            "accuracy": results["operation_direct"]["accuracy"],
+            "correct": results["operation_direct"]["correct"],
+            "total": results["operation_direct"]["total"],
+            "per_operation": {
+                op: {"accuracy": data["accuracy"], "correct": data["correct"], "total": data["total"]}
+                for op, data in results["operation_direct"]["per_op"].items()
+            },
+        },
+        "operation_binary": {
+            "accuracy": results["operation_binary"]["accuracy"],
+            "correct": results["operation_binary"]["correct"],
+            "total": results["operation_binary"]["total"],
+        },
+        "magnitude": {
+            "accuracy": results["magnitude_step1"]["accuracy"],
+            "correct": results["magnitude_step1"]["correct"],
+            "total": results["magnitude_step1"]["total"],
+            "per_threshold": {
+                str(t): {"accuracy": data["accuracy"], "correct": data["correct"], "total": data["total"]}
+                for t, data in results["magnitude_step1"]["per_threshold"].items()
+            },
+        },
+        "comparison": {
+            "accuracy": results["comparison"]["accuracy"],
+            "correct": results["comparison"]["correct"],
+            "total": results["comparison"]["total"],
+        },
+    }
     
     # Save
     output_path = Path(args.output)
