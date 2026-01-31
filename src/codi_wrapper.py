@@ -442,7 +442,8 @@ class CODIWrapper:
         Apply logit lens at all layers for a specific position.
 
         Args:
-            hidden_states: Full hidden states, shape (seq_len, num_layers, hidden_dim)
+            hidden_states: Full hidden states from CODI.generate(), 
+                           shape (num_layers, batch, seq, hidden)
             position: The sequence position to analyze
             top_k: Number of top tokens to return
             apply_layer_norm: Whether to apply layer norm before projection
@@ -451,10 +452,13 @@ class CODIWrapper:
             LogitLensResult with top-k tokens at each layer
         """
         layer_results = []
+        num_layers = hidden_states.shape[0]
 
         with torch.no_grad():
-            for layer_idx in range(hidden_states.shape[1]):
-                vec = hidden_states[position, layer_idx, :].to(self.device).unsqueeze(0)
+            for layer_idx in range(num_layers):
+                # hidden_states shape: (num_layers, batch, seq, hidden)
+                # Extract: hidden_states[layer, batch=0, position, :]
+                vec = hidden_states[layer_idx, 0, position, :].to(self.device).unsqueeze(0)
 
                 if apply_layer_norm and self._layer_norm is not None:
                     vec = self._layer_norm(vec)

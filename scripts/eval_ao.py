@@ -121,7 +121,8 @@ def ao_generate(ao, question: str, latent_vectors: list, max_new_tokens: int = 1
             vectors.append(torch.tensor(v))
     
     prompt = ao.create_prompt(question=question, activation_vectors=vectors)
-    return ao.generate(prompt=prompt, max_new_tokens=max_new_tokens)
+    # Use temperature=0 for deterministic/reproducible evaluation
+    return ao.generate(prompt=prompt, max_new_tokens=max_new_tokens, temperature=0)
 
 
 def evaluate_extraction(ao, problems, latents, position: int, step: int):

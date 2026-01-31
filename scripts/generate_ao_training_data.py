@@ -15,24 +15,14 @@ import argparse
 import json
 import random
 import sys
-from dataclasses import dataclass, asdict
 from pathlib import Path
+
+import torch
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-
-@dataclass
-class TrainingExample:
-    """A training example for the AO."""
-    prompt: str
-    question: str
-    answer: str
-    latent_vectors: list
-    latent_positions: list
-    question_type: str
-    source: str
-    is_multi_latent: bool
+from src.datasets.latent_qa import LatentQAExample
 
 
 # =============================================================================
@@ -117,7 +107,7 @@ def generate_qa_from_problem(
     problem: dict,
     latent_z2: list,  # Step 1 result (position 1, 0-indexed)
     latent_z4: list,  # Step 2 result (position 3, 0-indexed)
-) -> list[TrainingExample]:
+) -> list[LatentQAExample]:
     """Generate diverse QA examples from a problem with collected latents."""
     examples = []
     
@@ -130,14 +120,14 @@ def generate_qa_from_problem(
     # 1. EXTRACTION - Step 1 (from z2)
     # -------------------------------------------------------------------------
     for q in EXTRACTION_QUESTIONS + EXTRACTION_STEP1:
-        examples.append(TrainingExample(
+        examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 1),
             question=q,
             answer=str(step1),
             latent_vectors=[latent_z2],
             latent_positions=[1],  # z2 is index 1
             question_type="extraction_step1",
-            source="synthetic",
+            source_prompt="synthetic",
             is_multi_latent=False,
         ))
     
@@ -145,14 +135,14 @@ def generate_qa_from_problem(
     # 2. EXTRACTION - Step 2 (from z4)
     # -------------------------------------------------------------------------
     for q in EXTRACTION_QUESTIONS + EXTRACTION_STEP2:
-        examples.append(TrainingExample(
+        examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 1),
             question=q,
             answer=str(step2),
             latent_vectors=[latent_z4],
             latent_positions=[3],  # z4 is index 3
             question_type="extraction_step2",
-            source="synthetic",
+            source_prompt="synthetic",
             is_multi_latent=False,
         ))
     
@@ -160,14 +150,14 @@ def generate_qa_from_problem(
     # 3. OPERATION - Direct question (Step 1 only, since step 2 is always mul)
     # -------------------------------------------------------------------------
     for q in OPERATION_DIRECT:
-        examples.append(TrainingExample(
+        examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 1),
             question=q,
             answer=op_name,
             latent_vectors=[latent_z2],
             latent_positions=[1],
             question_type="operation_direct",
-            source="synthetic",
+            source_prompt="synthetic",
             is_multi_latent=False,
         ))
     
@@ -177,14 +167,14 @@ def generate_qa_from_problem(
     for check_op, questions in OPERATION_BINARY.items():
         is_this_op = op_name == check_op
         q = random.choice(questions)
-        examples.append(TrainingExample(
+        examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 1),
             question=q,
             answer="yes" if is_this_op else "no",
             latent_vectors=[latent_z2],
             latent_positions=[1],
             question_type="operation_binary",
-            source="synthetic",
+            source_prompt="synthetic",
             is_multi_latent=False,
         ))
     
@@ -193,14 +183,14 @@ def generate_qa_from_problem(
     # -------------------------------------------------------------------------
     for threshold, questions in MAGNITUDE_QUESTIONS.items():
         q = random.choice(questions)
-        examples.append(TrainingExample(
+        examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 1),
             question=q,
             answer="yes" if step1 > threshold else "no",
             latent_vectors=[latent_z2],
             latent_positions=[1],
             question_type="magnitude_step1",
-            source="synthetic",
+            source_prompt="synthetic",
             is_multi_latent=False,
         ))
     
@@ -209,14 +199,14 @@ def generate_qa_from_problem(
     # -------------------------------------------------------------------------
     for threshold, questions in MAGNITUDE_QUESTIONS.items():
         q = random.choice(questions)
-        examples.append(TrainingExample(
+        examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 1),
             question=q,
             answer="yes" if step2 > threshold else "no",
             latent_vectors=[latent_z4],
             latent_positions=[3],
             question_type="magnitude_step2",
-            source="synthetic",
+            source_prompt="synthetic",
             is_multi_latent=False,
         ))
     
@@ -231,14 +221,14 @@ def generate_qa_from_problem(
         else:
             answer = "step 2" if step2 > step1 else "step 1"
         
-        examples.append(TrainingExample(
+        examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 2),
             question=q,
             answer=answer,
             latent_vectors=[latent_z2, latent_z4],
             latent_positions=[1, 3],
             question_type="comparison",
-            source="synthetic",
+            source_prompt="synthetic",
             is_multi_latent=True,
         ))
     
@@ -246,26 +236,26 @@ def generate_qa_from_problem(
     # 8. MULTI-LATENT - Step extraction with both latents
     # -------------------------------------------------------------------------
     q = "Given both steps, what was calculated first?"
-    examples.append(TrainingExample(
+    examples.append(LatentQAExample(
         prompt=format_oracle_prompt(q, 2),
         question=q,
         answer=str(step1),
         latent_vectors=[latent_z2, latent_z4],
         latent_positions=[1, 3],
         question_type="multi_extraction_step1",
-        source="synthetic",
+        source_prompt="synthetic",
         is_multi_latent=True,
     ))
     
     q = "Given both steps, what was calculated second?"
-    examples.append(TrainingExample(
+    examples.append(LatentQAExample(
         prompt=format_oracle_prompt(q, 2),
         question=q,
         answer=str(step2),
         latent_vectors=[latent_z2, latent_z4],
         latent_positions=[1, 3],
         question_type="multi_extraction_step2",
-        source="synthetic",
+        source_prompt="synthetic",
         is_multi_latent=True,
     ))
     
@@ -280,7 +270,7 @@ def load_codi_model(config_path="configs/default.yaml"):
     with open(config_path) as f:
         config = yaml.safe_load(f)
     
-    device = "cuda"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
     codi = CODIWrapper.from_pretrained(
         checkpoint_path=config["model"]["codi_checkpoint"],
@@ -379,7 +369,7 @@ def main():
     
     with open(output_path, "w") as f:
         for ex in all_examples:
-            f.write(json.dumps(asdict(ex)) + "\n")
+            f.write(json.dumps(ex.to_dict()) + "\n")
     
     print(f"\nSaved to {output_path}")
     

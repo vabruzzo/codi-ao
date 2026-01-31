@@ -601,9 +601,8 @@ class LatentQADatasetGenerator:
                     
                     example = LatentQAExample(
                         prompt=oracle_prompt,
-                        latent_vector=latent_vec.tolist(),
-                        latent_position=lat_pos,
-                        layer_percent=self.layer_percent,
+                        latent_vectors=[latent_vec.tolist()],
+                        latent_positions=[lat_pos],
                         question=question,
                         answer=answer,
                         source_prompt=prompt,
@@ -724,9 +723,8 @@ def create_synthetic_examples(
         
         example = LatentQAExample(
             prompt=oracle_prompt,
-            latent_vector=torch.randn(2048).tolist(),  # Random vector
-            latent_position=random.choice([1, 3]),  # z2 or z4
-            layer_percent=50,
+            latent_vectors=[torch.randn(2048).tolist()],  # Random vector (wrapped in list)
+            latent_positions=[random.choice([1, 3])],  # z2 or z4 (wrapped in list)
             question=question,
             answer=result,
             source_prompt=f"Synthetic problem {i}",

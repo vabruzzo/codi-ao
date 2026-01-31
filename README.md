@@ -28,7 +28,9 @@ This project investigates whether **Activation Oracles** can extract information
 | Operation Direct | 100% | "What operation was performed?" |
 | Operation Binary | 97.5% | "Is this addition?" (yes/no) |
 | Magnitude | 99.5% | "Is result > 50?" (yes/no) |
-| Comparison (multi-latent) | 100% | "Which step is larger?" |
+| Comparison (multi-latent) | 100%* | "Which step is larger?" |
+
+*\*Note: Comparison task has class imbalance - step2 > step1 in ~95% of cases due to multiplication in step2 for add/sub problems. High accuracy may partly reflect this imbalance.*
 
 ### Why Logit Lens Fails
 
@@ -115,44 +117,51 @@ uv sync
 
 ## Usage
 
-### 1. Generate AO Training Data
+### 1. Generate Synthetic Problems
 
-Generates synthetic problems, collects CODI latents, and creates Q&A pairs:
+```bash
+python scripts/generate_synthetic_data.py \
+    --n_samples 1200 \
+    --seed 42 \
+    --output data/synthetic_problems.json
+```
+
+### 2. Generate AO Training Data
+
+Collects CODI latents and creates Q&A pairs (holds out last 200 for testing):
 
 ```bash
 python scripts/generate_ao_training_data.py \
-    --n-problems 1200 \
-    --output data/ao_training_data.json \
+    --problems data/synthetic_problems.json \
+    --output data/ao_training_data.jsonl \
     --holdout 200
 ```
 
-This creates 1,200 problems with 200 held out for testing.
-
-### 2. Run Logit Lens Baseline
+### 3. Run Logit Lens Baseline
 
 ```bash
 python scripts/eval_logit_lens_operation.py \
-    --data data/ao_training_data.json \
+    --data data/synthetic_problems.json \
     --output results/logit_lens_operation.json
 ```
 
-### 3. Train Activation Oracle
+### 4. Train Activation Oracle
 
 ```bash
 python scripts/train.py \
-    --data data/ao_training_data.json \
-    --output checkpoints/ao_study \
+    --data data/ao_training_data.jsonl \
+    --output_dir checkpoints/ao_study \
     --epochs 3 \
-    --batch-size 4
+    --batch_size 4
 ```
 
-### 4. Evaluate Activation Oracle
+### 5. Evaluate Activation Oracle
 
 ```bash
 python scripts/eval_ao.py \
     --checkpoint checkpoints/ao_study \
-    --problems data/ao_training_data.json \
-    --n-test 200 \
+    --problems data/synthetic_problems.json \
+    --n_test 200 \
     --output results/ao_evaluation.json
 ```
 
@@ -163,7 +172,8 @@ codi-ao/
 ├── configs/
 │   └── default.yaml          # Model configuration
 ├── scripts/
-│   ├── generate_ao_training_data.py  # Generate problems + AO training data
+│   ├── generate_synthetic_data.py    # Generate synthetic math problems
+│   ├── generate_ao_training_data.py  # Collect latents + create QA pairs
 │   ├── train.py                      # Train Activation Oracle
 │   ├── eval_logit_lens_operation.py  # Logit Lens baseline (z2 only)
 │   └── eval_ao.py                    # Evaluate trained AO
