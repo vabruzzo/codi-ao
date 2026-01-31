@@ -4,11 +4,17 @@ Interpreting latent reasoning in CODI models using Activation Oracles.
 
 ## Overview
 
-This project investigates whether **Activation Oracles** can extract information from CODI's latent reasoning vectors that traditional interpretability methods (like Logit Lens) cannot.
+This project investigates whether **Activation Oracles** can extract information from CODI's latent reasoning vectors that Logit Lens cannot.
 
 **Key Finding**: The Activation Oracle significantly outperforms Logit Lens on operation type detection (add/sub/mul). Logit Lens achieves only **60.1%** (heavily biased toward "add"), while the AO achieves **99.5%** with balanced performance across all operations.
 
 ## Results Summary
+
+- AO outperforms Logit Lens on operation detection: 99.5% vs 60.1%, with balanced accuracy across all operations
+- Logit Lens is heavily biased toward "add" (97% add vs 31% sub); operation tokens appear in top-10 only 6.5% of the time
+- Operation information is present in z2 but not accessible via token probabilities
+- z2 yields higher extraction accuracy than z4 (97.5% vs 59.5%), consistent with prior work
+- AO performs well on z4 for comparison (100%) despite lower numeric extraction
 
 ### Operation Detection: Logit Lens vs Activation Oracle
 
@@ -49,14 +55,6 @@ Logit Lens projects the latent vector to the vocabulary space and sums probabili
 The Activation Oracle achieves **99.5%** with balanced per-operation performance (100% add, 98.6% sub, 100% mul).
 
 **Interpretation**: The operation information appears to be present in z2 (given the AO can extract it), but is not accessible via direct vocabulary projection. Whether this is due to non-linear encoding, interference from numeric information, or other factors is unclear from this experiment alone.
-
-### Summary
-
-- AO outperforms Logit Lens on operation detection: 99.5% vs 60.1%, with balanced accuracy across all operations
-- Logit Lens is heavily biased toward "add" (97% add vs 31% sub); operation tokens appear in top-10 only 6.5% of the time
-- Operation information is present in z2 but not accessible via token probabilities
-- z2 yields higher extraction accuracy than z4 (97.5% vs 59.5%), consistent with prior work
-- AO performs well on z4 for comparison (100%) despite lower numeric extraction
 
 ## Background
 
