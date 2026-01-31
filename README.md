@@ -50,6 +50,14 @@ The Activation Oracle achieves **99.5%** with balanced per-operation performance
 
 **Interpretation**: The operation information appears to be present in z2 (given the AO can extract it), but is not accessible via direct vocabulary projection. Whether this is due to non-linear encoding, interference from numeric information, or other factors is unclear from this experiment alone.
 
+### Summary
+
+- AO outperforms Logit Lens on operation detection: 99.5% vs 60.1%, with balanced accuracy across all operations
+- Logit Lens is heavily biased toward "add" (97% add vs 31% sub); operation tokens appear in top-10 only 6.5% of the time
+- Operation information is present in z2 but not accessible via token probabilities
+- z2 yields higher extraction accuracy than z4 (97.5% vs 59.5%), consistent with prior work
+- AO performs well on z4 for comparison (100%) despite lower numeric extraction
+
 ## Background
 
 ### CODI Model
@@ -193,14 +201,6 @@ codi-ao/
 │       └── latent_qa.py       # Training data utilities
 └── results/                   # Evaluation outputs
 ```
-
-## Key Findings
-
-1. **AO outperforms Logit Lens on operation detection** - 99.5% vs 60.1%, with balanced accuracy across all operations
-2. **Logit Lens is heavily biased toward "add"** - 97% on addition but only 31% on subtraction; operation tokens appear in top-10 only 6.5% of the time
-3. **Operation information is present but not via token probabilities** - The AO can extract it, but Logit Lens cannot
-4. **z2 yields higher extraction accuracy than z4** - Step 1: 97.5%, Step 2: 59.5% (consistent with prior work)
-5. **AO performs well on z4 for comparison** - 100% on "which step is larger?" despite lower numeric extraction
 
 ## References
 
