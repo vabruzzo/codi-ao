@@ -83,7 +83,7 @@ def train_probe(probe, train_loader, device, epochs=10, lr=1e-3):
         total = 0
         
         for latents, labels in train_loader:
-            latents = latents.to(device)
+            latents = latents.to(device).float()  # Convert to float32
             labels = labels.to(device)
             
             optimizer.zero_grad()
@@ -123,7 +123,7 @@ def evaluate_probe(probe, eval_loader, device, problems, position):
     
     with torch.no_grad():
         for latents, labels in eval_loader:
-            latents = latents.to(device)
+            latents = latents.to(device).float()  # Convert to float32
             labels = labels.to(device)
             
             logits = probe(latents)
