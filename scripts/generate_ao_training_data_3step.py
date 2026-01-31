@@ -2,12 +2,15 @@
 """
 Generate Activation Oracle training data for 3-step problems.
 
-Uses ALL 6 latents and includes questions about:
-- Step 1 (z2): First intermediate result (X op Y)
-- Step 2 (z4): Second intermediate result (step1 * Z)
-- Step 3 (z6): Final answer (step1 + step2)
-- Operations at each step
-- Operands
+Generates BOTH single-latent and multi-latent training examples for robust evaluation:
+- Single-latent z2 (position 1): Step 1 questions
+- Single-latent z4 (position 3): Step 2 questions  
+- Single-latent z6 (position 5): Step 3 / final answer questions
+- Multi-latent (all 6): All questions
+
+This enables testing:
+1. What does each individual latent encode?
+2. Does having all latents improve extraction?
 """
 
 import argparse
@@ -28,7 +31,7 @@ from src.datasets.latent_qa import LatentQAExample
 # QUESTION TEMPLATES
 # =============================================================================
 
-# Step 1 extraction (z2)
+# Step 1 extraction (z2, position 1)
 STEP1_QUESTIONS = [
     "What was calculated in the first step?",
     "What is the result of step 1?",
@@ -36,7 +39,7 @@ STEP1_QUESTIONS = [
     "What was the first calculation result?",
 ]
 
-# Step 2 extraction (z4)
+# Step 2 extraction (z4, position 3)
 STEP2_QUESTIONS = [
     "What was calculated in the second step?",
     "What is the result of step 2?",
@@ -44,7 +47,7 @@ STEP2_QUESTIONS = [
     "What was the second calculation result?",
 ]
 
-# Step 3 / Final answer extraction (z6)
+# Step 3 / Final answer extraction (z6, position 5)
 STEP3_QUESTIONS = [
     "What is the final answer?",
     "What was calculated in the third step?",
@@ -71,7 +74,7 @@ SECOND_OPERAND_QUESTIONS = [
     "What was the second operand in the first calculation?",
 ]
 
-# Comparison questions
+# Comparison questions (requires multiple latents)
 COMPARISON_QUESTIONS = [
     "Which step produced a larger result: step 1 or step 2?",
     "Is step 2's result greater than step 1's result?",
@@ -79,8 +82,8 @@ COMPARISON_QUESTIONS = [
 ]
 
 
-def format_oracle_prompt(question: str, num_latents: int = 6) -> str:
-    """Format prompt for the Activation Oracle with all 6 latents."""
+def format_oracle_prompt(question: str, num_latents: int) -> str:
+    """Format prompt for the Activation Oracle."""
     placeholders = " ?" * num_latents
     return f"Layer 50%:{placeholders} {question}"
 
@@ -94,7 +97,15 @@ def generate_qa_from_problem(
     problem: dict,
     all_latents: list,  # All 6 latent vectors
 ) -> list[LatentQAExample]:
-    """Generate QA examples for a 3-step problem using all 6 latents."""
+    """
+    Generate QA examples for a 3-step problem.
+    
+    Creates BOTH single-latent and multi-latent examples:
+    - Single z2 (pos 1): step1, operation, operands
+    - Single z4 (pos 3): step2
+    - Single z6 (pos 5): step3/final answer
+    - All 6 latents: all questions
+    """
     examples = []
     
     step1 = problem["step1"]
@@ -109,10 +120,105 @@ def generate_qa_from_problem(
     
     # Convert all latents to lists
     latent_list = [lat.cpu().tolist() if isinstance(lat, torch.Tensor) else lat for lat in all_latents]
-    positions = [0, 1, 2, 3, 4, 5]  # All 6 positions
+    
+    # Extract individual latents
+    z2 = latent_list[1]  # Position 1 - step 1
+    z4 = latent_list[3]  # Position 3 - step 2
+    z6 = latent_list[5]  # Position 5 - step 3/final
+    
+    # =========================================================================
+    # SINGLE-LATENT EXAMPLES (for testing what each latent encodes individually)
+    # =========================================================================
     
     # -------------------------------------------------------------------------
-    # 1. STEP 1 EXTRACTION (target: step1)
+    # SINGLE z2 (position 1): Step 1 questions
+    # -------------------------------------------------------------------------
+    for q in STEP1_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=str(step1),
+            latent_vectors=[z2],
+            latent_positions=[1],
+            question_type="extraction_step1_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+    
+    for q in OPERATION_STEP1_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=op1_name,
+            latent_vectors=[z2],
+            latent_positions=[1],
+            question_type="operation_step1_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+    
+    for q in FIRST_OPERAND_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=str(X),
+            latent_vectors=[z2],
+            latent_positions=[1],
+            question_type="operand_first_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+    
+    for q in SECOND_OPERAND_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=str(Y),
+            latent_vectors=[z2],
+            latent_positions=[1],
+            question_type="operand_second_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+    
+    # -------------------------------------------------------------------------
+    # SINGLE z4 (position 3): Step 2 questions
+    # -------------------------------------------------------------------------
+    for q in STEP2_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=str(step2),
+            latent_vectors=[z4],
+            latent_positions=[3],
+            question_type="extraction_step2_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+    
+    # -------------------------------------------------------------------------
+    # SINGLE z6 (position 5): Step 3 / Final answer questions
+    # -------------------------------------------------------------------------
+    for q in STEP3_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=str(step3),
+            latent_vectors=[z6],
+            latent_positions=[5],
+            question_type="extraction_step3_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+    
+    # =========================================================================
+    # MULTI-LATENT EXAMPLES (all 6 latents)
+    # =========================================================================
+    
+    all_positions = [0, 1, 2, 3, 4, 5]
+    
+    # -------------------------------------------------------------------------
+    # Step 1 extraction with all latents
     # -------------------------------------------------------------------------
     for q in STEP1_QUESTIONS:
         examples.append(LatentQAExample(
@@ -120,14 +226,14 @@ def generate_qa_from_problem(
             question=q,
             answer=str(step1),
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="extraction_step1",
+            latent_positions=all_positions,
+            question_type="extraction_step1_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
     
     # -------------------------------------------------------------------------
-    # 2. STEP 2 EXTRACTION (target: step2)
+    # Step 2 extraction with all latents
     # -------------------------------------------------------------------------
     for q in STEP2_QUESTIONS:
         examples.append(LatentQAExample(
@@ -135,14 +241,14 @@ def generate_qa_from_problem(
             question=q,
             answer=str(step2),
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="extraction_step2",
+            latent_positions=all_positions,
+            question_type="extraction_step2_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
     
     # -------------------------------------------------------------------------
-    # 3. STEP 3 / FINAL ANSWER EXTRACTION (target: step3 = final_answer)
+    # Step 3 / Final answer extraction with all latents
     # -------------------------------------------------------------------------
     for q in STEP3_QUESTIONS:
         examples.append(LatentQAExample(
@@ -150,14 +256,14 @@ def generate_qa_from_problem(
             question=q,
             answer=str(step3),
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="extraction_step3",
+            latent_positions=all_positions,
+            question_type="extraction_step3_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
     
     # -------------------------------------------------------------------------
-    # 4. OPERATION DETECTION (Step 1)
+    # Operation detection with all latents
     # -------------------------------------------------------------------------
     for q in OPERATION_STEP1_QUESTIONS:
         examples.append(LatentQAExample(
@@ -165,14 +271,14 @@ def generate_qa_from_problem(
             question=q,
             answer=op1_name,
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="operation_step1",
+            latent_positions=all_positions,
+            question_type="operation_step1_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
     
     # -------------------------------------------------------------------------
-    # 5. OPERAND EXTRACTION (Step 1)
+    # Operand extraction with all latents
     # -------------------------------------------------------------------------
     for q in FIRST_OPERAND_QUESTIONS:
         examples.append(LatentQAExample(
@@ -180,8 +286,8 @@ def generate_qa_from_problem(
             question=q,
             answer=str(X),
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="operand_first",
+            latent_positions=all_positions,
+            question_type="operand_first_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
@@ -192,14 +298,14 @@ def generate_qa_from_problem(
             question=q,
             answer=str(Y),
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="operand_second",
+            latent_positions=all_positions,
+            question_type="operand_second_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
     
     # -------------------------------------------------------------------------
-    # 6. FULL CALCULATION (Step 1)
+    # Full calculation (step 1) with all latents
     # -------------------------------------------------------------------------
     full_calc = f"{X} {op1_symbol} {Y}"
     examples.append(LatentQAExample(
@@ -207,14 +313,26 @@ def generate_qa_from_problem(
         question="What calculation was performed in step 1?",
         answer=full_calc,
         latent_vectors=latent_list,
-        latent_positions=positions,
-        question_type="full_calculation_step1",
+        latent_positions=all_positions,
+        question_type="full_calculation_step1_multi",
         source_prompt="synthetic_3step",
         is_multi_latent=True,
     ))
     
+    # Also single-latent version
+    examples.append(LatentQAExample(
+        prompt=format_oracle_prompt("What calculation was performed in step 1?", 1),
+        question="What calculation was performed in step 1?",
+        answer=full_calc,
+        latent_vectors=[z2],
+        latent_positions=[1],
+        question_type="full_calculation_step1_single",
+        source_prompt="synthetic_3step",
+        is_multi_latent=False,
+    ))
+    
     # -------------------------------------------------------------------------
-    # 7. COMPARISON
+    # Comparison (requires multiple latents - multi only)
     # -------------------------------------------------------------------------
     for q in COMPARISON_QUESTIONS:
         if "greater" in q.lower():
@@ -227,36 +345,62 @@ def generate_qa_from_problem(
             question=q,
             answer=answer,
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="comparison",
+            latent_positions=all_positions,
+            question_type="comparison_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
     
     # -------------------------------------------------------------------------
-    # 8. MAGNITUDE QUESTIONS
+    # Magnitude questions (both single and multi)
     # -------------------------------------------------------------------------
     for threshold in [10, 50, 100]:
+        # Step 1 magnitude - single z2
         q = f"Is the step 1 result greater than {threshold}?"
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer="yes" if step1 > threshold else "no",
+            latent_vectors=[z2],
+            latent_positions=[1],
+            question_type="magnitude_step1_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+        
+        # Step 1 magnitude - multi
         examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 6),
             question=q,
             answer="yes" if step1 > threshold else "no",
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="magnitude_step1",
+            latent_positions=all_positions,
+            question_type="magnitude_step1_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
         
+        # Final answer magnitude - single z6
         q = f"Is the final answer greater than {threshold}?"
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer="yes" if step3 > threshold else "no",
+            latent_vectors=[z6],
+            latent_positions=[5],
+            question_type="magnitude_step3_single",
+            source_prompt="synthetic_3step",
+            is_multi_latent=False,
+        ))
+        
+        # Final answer magnitude - multi
         examples.append(LatentQAExample(
             prompt=format_oracle_prompt(q, 6),
             question=q,
             answer="yes" if step3 > threshold else "no",
             latent_vectors=latent_list,
-            latent_positions=positions,
-            question_type="magnitude_step3",
+            latent_positions=all_positions,
+            question_type="magnitude_step3_multi",
             source_prompt="synthetic_3step",
             is_multi_latent=True,
         ))
@@ -356,9 +500,17 @@ def main():
     
     from collections import Counter
     by_type = Counter(ex.question_type for ex in all_examples)
+    
+    # Count single vs multi
+    single_count = sum(1 for ex in all_examples if not ex.is_multi_latent)
+    multi_count = sum(1 for ex in all_examples if ex.is_multi_latent)
+    
+    print(f"\nSingle-latent examples: {single_count} ({100*single_count/len(all_examples):.1f}%)")
+    print(f"Multi-latent examples:  {multi_count} ({100*multi_count/len(all_examples):.1f}%)")
+    
     print("\nBy question type:")
     for t, count in sorted(by_type.items()):
-        print(f"  {t}: {count} ({100*count/len(all_examples):.1f}%)")
+        print(f"  {t}: {count}")
     
     # Save
     output_path = Path(args.output)

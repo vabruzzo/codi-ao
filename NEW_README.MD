@@ -10,14 +10,15 @@ Replicating the LessWrong paper's setup with 3-step math problems.
 
 ### Phase 2: Training Data
 - [x] Create `generate_ao_training_data_3step.py` for 3 steps
+- [x] Include BOTH single-latent and multi-latent examples
 - [ ] Generate training data with questions for step1, step2, step3
 
 ### Phase 3: Training
 - [ ] Train AO on new data
 
 ### Phase 4: Evaluation
-- [ ] Update `eval_ao_all6.py` for step3 extraction
-- [ ] Update `eval_logit_lens_results.py` for step3
+- [x] Create `eval_ao_3step.py` (single + multi latent tests)
+- [ ] Create `eval_logit_lens_3step.py` for step3
 - [ ] Run all evaluations
 
 ### Phase 5: Analysis
@@ -43,16 +44,44 @@ Replicating the LessWrong paper's setup with 3-step math problems.
 
 ---
 
+## Training Data Structure
+
+Training includes BOTH single-latent and multi-latent examples:
+
+| Example Type | Latents | Questions |
+|-------------|---------|-----------|
+| Single z2 | position 1 only | step1 extraction, operation, operands |
+| Single z4 | position 3 only | step2 extraction |
+| Single z6 | position 5 only | step3/final answer extraction |
+| Multi (all 6) | positions 0-5 | all questions |
+
+This enables evaluation of:
+1. **What does each latent encode?** (single-latent tests)
+2. **Does multi-latent context help?** (compare single vs multi)
+
+---
+
 ## Results
 
 *To be filled after experiments*
 
+### Extraction Results
+
 | Task | Logit Lens | AO (single latent) | AO (all 6) |
 |------|------------|-------------------|------------|
-| Step 1 extraction | TBD | TBD | TBD |
-| Step 2 extraction | TBD | TBD | TBD |
-| Step 3 / Final answer | TBD | TBD | TBD |
-| Operation detection | TBD | TBD | TBD |
+| Step 1 (z2) | TBD | TBD | TBD |
+| Step 2 (z4) | TBD | TBD | TBD |
+| Step 3 / Final (z6) | TBD | TBD | TBD |
+
+### Other Metrics
+
+| Task | AO (single) | AO (multi) |
+|------|-------------|------------|
+| Operation (step 1) | TBD | TBD |
+| First operand | TBD | TBD |
+| Second operand | TBD | TBD |
+| Full calculation | TBD | TBD |
+| Comparison | N/A | TBD |
 
 ---
 
@@ -85,12 +114,20 @@ uv run python scripts/train.py \
 
 ### Phase 4: Evaluate
 ```bash
-# AO evaluation (to be created)
+# AO evaluation - normal
 uv run python scripts/eval_ao_3step.py \
     --checkpoint checkpoints/ao_3step \
     --problems data/synthetic_problems_3step.json \
     --n_test 200 \
     --output results/ao_3step_evaluation.json
+
+# AO evaluation - shuffle sanity check
+uv run python scripts/eval_ao_3step.py \
+    --checkpoint checkpoints/ao_3step \
+    --problems data/synthetic_problems_3step.json \
+    --n_test 200 \
+    --shuffle \
+    --output results/ao_3step_shuffle.json
 
 # Logit Lens evaluation (to be created)
 uv run python scripts/eval_logit_lens_3step.py \
@@ -105,4 +142,12 @@ uv run python scripts/eval_logit_lens_3step.py \
 ### Session Start
 - Created `generate_synthetic_data_3step.py` for 3-step problems
 - Created `generate_ao_training_data_3step.py` for training data
+  - Includes BOTH single-latent and multi-latent examples
+  - Single z2 → step1, operation, operands
+  - Single z4 → step2
+  - Single z6 → step3/final answer
+  - Multi (all 6) → all questions
+- Created `eval_ao_3step.py` for comprehensive evaluation
+  - Tests single vs multi latent performance
+  - Includes shuffle sanity check
 - Next: Generate problems and training data
