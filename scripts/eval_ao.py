@@ -115,22 +115,31 @@ def extract_number(text: str) -> int | None:
     return None
 
 
+def ao_generate(ao, question: str, latent_vectors: list, max_new_tokens: int = 10) -> str:
+    """Helper to generate with AO using proper AOPrompt."""
+    # Convert latent vectors to tensors if needed
+    vectors = []
+    for v in latent_vectors:
+        if isinstance(v, torch.Tensor):
+            vectors.append(v)
+        else:
+            vectors.append(torch.tensor(v))
+    
+    prompt = ao.create_prompt(question=question, activation_vectors=vectors)
+    return ao.generate(prompt=prompt, max_new_tokens=max_new_tokens)
+
+
 def evaluate_extraction(ao, problems, latents, position: int, step: int):
     """Evaluate numeric extraction accuracy."""
     results = {"correct": 0, "total": 0, "predictions": []}
     
     question = random.choice(EXTRACTION_QUESTIONS)
-    prompt = format_oracle_prompt(question, 1)
     
     for i, (problem, latent_set) in enumerate(zip(problems, latents)):
         latent = latent_set[position]
         true_value = problem[f"step{step}"]
         
-        response = ao.generate(
-            prompt=prompt,
-            activation_vectors=[latent],
-            max_new_tokens=10,
-        )
+        response = ao_generate(ao, question, [latent], max_new_tokens=10)
         
         pred_value = extract_number(response)
         is_correct = pred_value == true_value
@@ -155,17 +164,12 @@ def evaluate_operation_direct(ao, problems, latents, position: int):
     results = {"correct": 0, "total": 0, "per_op": defaultdict(lambda: {"correct": 0, "total": 0}), "predictions": []}
     
     question = random.choice(OPERATION_DIRECT)
-    prompt = format_oracle_prompt(question, 1)
     
     for problem, latent_set in zip(problems, latents):
         latent = latent_set[position]
         true_op = op_to_name(problem["operation"])
         
-        response = ao.generate(
-            prompt=prompt,
-            activation_vectors=[latent],
-            max_new_tokens=10,
-        )
+        response = ao_generate(ao, question, [latent], max_new_tokens=10)
         
         response_lower = normalize_answer(response)
         
@@ -210,13 +214,8 @@ def evaluate_operation_binary(ao, problems, latents, position: int):
         # Ask about each operation
         for check_op, questions in OPERATION_BINARY.items():
             question = random.choice(questions)
-            prompt = format_oracle_prompt(question, 1)
             
-            response = ao.generate(
-                prompt=prompt,
-                activation_vectors=[latent],
-                max_new_tokens=5,
-            )
+            response = ao_generate(ao, question, [latent], max_new_tokens=5)
             
             response_lower = normalize_answer(response)
             pred_yes = "yes" in response_lower
@@ -255,18 +254,13 @@ def evaluate_magnitude(ao, problems, latents, position: int, step: int):
         results["per_threshold"][threshold] = {"correct": 0, "total": 0}
         
         question = random.choice(questions)
-        prompt = format_oracle_prompt(question, 1)
         
         for problem, latent_set in zip(problems, latents):
             latent = latent_set[position]
             true_value = problem[f"step{step}"]
             true_yes = true_value > threshold
             
-            response = ao.generate(
-                prompt=prompt,
-                activation_vectors=[latent],
-                max_new_tokens=5,
-            )
+            response = ao_generate(ao, question, [latent], max_new_tokens=5)
             
             response_lower = normalize_answer(response)
             pred_yes = "yes" in response_lower
@@ -300,7 +294,6 @@ def evaluate_comparison(ao, problems, latents):
     results = {"correct": 0, "total": 0, "predictions": []}
     
     question = random.choice(COMPARISON_QUESTIONS)
-    prompt = format_oracle_prompt(question, 2)
     
     for problem, latent_set in zip(problems, latents):
         latent_z2 = latent_set[1]  # Step 1
@@ -310,11 +303,7 @@ def evaluate_comparison(ao, problems, latents):
         step2 = problem["step2"]
         true_answer = "step 2" if step2 > step1 else "step 1"
         
-        response = ao.generate(
-            prompt=prompt,
-            activation_vectors=[latent_z2, latent_z4],
-            max_new_tokens=10,
-        )
+        response = ao_generate(ao, question, [latent_z2, latent_z4], max_new_tokens=10)
         
         response_lower = normalize_answer(response)
         
