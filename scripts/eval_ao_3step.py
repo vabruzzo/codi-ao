@@ -57,10 +57,10 @@ def load_ao_model(checkpoint_path: str, config_path: str = "configs/default.yaml
     
     ao_config = AOConfig(
         base_model=config["model"]["ao_base_model"],
-        latent_dim=config["model"]["ao_latent_dim"],
-        inject_layer=config["model"]["ao_inject_layer"],
-        lora_r=config["model"]["ao_lora_r"],
-        lora_alpha=config["model"]["ao_lora_alpha"],
+        latent_dim=2048,  # LLaMA 3.2 1B hidden dim
+        inject_layer=config["model"].get("ao_injection_layer", 1),
+        lora_r=config["lora"]["rank"],
+        lora_alpha=config["lora"]["alpha"],
         device=device,
     )
     

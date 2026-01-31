@@ -23,12 +23,18 @@ We use **3-step math problems** matching the LessWrong paper's setup:
 | **Step 2 (z4)** | **100%** | **87%** | 0.795 |
 | Step 3 / Final (z5) | 1% | 0% | ~0 |
 | Step 3 / Final (z6) | 0% | 0% | 0 |
-| Operation (z2) | 44% | - | - |
+| Operation (z2) | **0%** | - | ~0 |
 
 **Key Findings**:
 1. **Intermediate steps are linearly encoded**: z2 and z4 strongly encode step 1 and step 2 results (98% and 87% top-1 accuracy)
 2. **Final answer is NOT linearly encoded**: Neither z5 nor z6 contain the final answer in a form Logit Lens can read (0% accuracy)
-3. **Operation detection is weak and biased**: 44% overall, with 0% on multiplication (always misclassified as addition)
+3. **Operation type is NOT linearly encoded**: 0% accuracy, operation tokens appear in top-10 only 0.5% of the time (1/200 cases)
+
+**What Logit Lens actually sees in z2:**
+```
+Top tokens: "4" (98%), "11" (99%), "12" (99%), "16" (100%), ...
+```
+z2 encodes the **numeric result** so strongly that operation keywords ("add", "subtract", etc.) have essentially **zero probability**. The information is there (the AO can extract it), but not in a linearly decodable form.
 
 ### Activation Oracle Results
 
@@ -111,7 +117,8 @@ This enables evaluation of:
 - **Layer norm applied**: Final layer norm before projecting to vocabulary space
 - **Top-K analysis**: Check if target number/token appears in top-10 predictions
 - **Top-1 accuracy**: Whether the highest probability token is correct
-- **Operation detection**: Sum probability mass over operation-related tokens
+- **Operation detection**: Sum probability mass over operation-related tokens ("add", "addition", "plus", "+", "subtract", etc.)
+- **No-match tracking**: If no operation tokens appear in top-K, marked as "no_match" (not counted as correct for any operation)
 
 ### Activation Oracle Evaluation
 
