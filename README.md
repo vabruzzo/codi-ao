@@ -4,9 +4,11 @@ Interpreting latent reasoning in CODI models using Activation Oracles.
 
 ## Overview
 
-This project investigates whether **Activation Oracles** can extract information from CODI's latent reasoning vectors that Logit Lens cannot.
+This project investigates whether **Activation Oracles** can extract information from CODI's latent reasoning vectors that traditional interpretability methods cannot.
 
-**Key Finding**: The Activation Oracle significantly outperforms Logit Lens on operation type detection (add/sub/mul). Logit Lens achieves only **60.1%** (heavily biased toward "add"), while the AO achieves **99.5%** with balanced performance across all operations.
+**Key Findings**:
+1. The AO significantly outperforms Logit Lens on operation detection: **99.5%** vs **60.1%**
+2. z2 encodes the **operation type** and **result** strongly, but **operands weakly** - the AO can reconstruct valid calculations (77% semantic accuracy) but rarely the exact operands (33.5%)
 
 ## Results Summary
 
@@ -14,6 +16,7 @@ This project investigates whether **Activation Oracles** can extract information
 - Logit Lens is heavily biased toward "add" (97% add vs 31% sub); operation tokens appear in top-10 only 6.5% of the time
 - Operation information is present in z2 but not accessible via token probabilities
 - z2 yields higher extraction accuracy than z4 (97.5% vs 59.5%), consistent with prior work
+- **z2 encodes (operation, result) but not specific operands**: 77% semantic accuracy on full calculation vs 33.5% strict operand match
 - AO performs well on z4 for comparison (100%) despite lower numeric extraction
 
 ### Operation Detection: Logit Lens vs Activation Oracle
@@ -41,6 +44,24 @@ This project investigates whether **Activation Oracles** can extract information
 *\*Note: Comparison task has class imbalance - step2 > step1 in ~95% of cases due to multiplication in step2 for add/sub problems.*
 
 **Note on Step 2 extraction**: The lower accuracy (59.5%) reflects that z4 is less cleanly structured than z2 (consistent with prior work). The AO still *understands* z4 semantically (100% on comparison), but struggles with exact numeric extraction from it.
+
+### Operand Extraction: What Does z2 Actually Encode?
+
+In a follow-up experiment, we retrained the AO with additional questions about operands (X and Y) to test whether the full calculation is encoded in z2.
+
+| Task | Accuracy | Description |
+|------|----------|-------------|
+| First operand (X) | 42.5% | "What was the first number?" |
+| Second operand (Y) | 39.0% | "What was the second number?" |
+| Full calculation (strict) | 33.5% | Exact match: X, op, Y all correct |
+| **Full calculation (semantic)** | **77.0%** | Correct op AND pred_X op pred_Y = result |
+
+**Key insight**: The AO often produces *different* operands that yield the *same result*:
+- True: `8 - 4 = 4` → AO: `"10 - 6"` (= 4 ✓)
+- True: `8 * 3 = 24` → AO: `"4 * 6"` (= 24 ✓)
+- True: `8 + 6 = 14` → AO: `"6 + 8"` (= 14 ✓, operands swapped)
+
+**Conclusion**: z2 strongly encodes **(operation, result)** but weakly encodes the **specific operands**. The latent "knows" it performed subtraction and got 4, but doesn't cleanly distinguish 8-4 from 10-6 or 12-8.
 
 ### Logit Lens Results
 
@@ -101,6 +122,10 @@ From each problem, we generate diverse QA pairs:
 - Operation classification: "What operation was performed?"
 - Magnitude: "Is the result greater than 50?"
 - Comparison (multi-latent): "Which step is larger?"
+
+For the operand extraction experiment, additional questions were added:
+- Operand extraction: "What was the first/second number?"
+- Full calculation: "What calculation was performed?" (answer: "X op Y")
 
 ### Logit Lens Baseline
 
@@ -190,7 +215,8 @@ codi-ao/
 │   ├── generate_ao_training_data.py  # Collect latents + create QA pairs
 │   ├── train.py                      # Train Activation Oracle
 │   ├── eval_logit_lens_operation.py  # Logit Lens baseline (z2 only)
-│   └── eval_ao.py                    # Evaluate trained AO
+│   ├── eval_ao.py                    # Evaluate trained AO
+│   └── eval_ao_operands.py           # Operand extraction evaluation
 ├── src/
 │   ├── activation_oracle.py   # AO model implementation
 │   ├── codi_wrapper.py        # CODI model interface

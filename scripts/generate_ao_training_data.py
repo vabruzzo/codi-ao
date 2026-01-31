@@ -3,10 +3,12 @@
 Generate Activation Oracle training data from synthetic problems.
 
 Creates diverse QA pairs:
-1. Extraction - numeric values from latents
+1. Extraction - numeric values from latents (result)
 2. Operation classification - add/sub/mul detection
-3. Magnitude classification - threshold comparisons
-4. Multi-latent comparison - which step is larger
+3. Operand extraction - first/second operand (X, Y)
+4. Full calculation - "X op Y" format
+5. Magnitude classification - threshold comparisons
+6. Multi-latent comparison - which step is larger
 
 Uses seeded synthetic problems, collects CODI latents, generates training data.
 """
@@ -49,6 +51,25 @@ EXTRACTION_STEP2 = [
     "What was calculated in the second step?",
     "What is the result of step 2?",
     "Second calculation result?",
+]
+
+# Operand extraction questions (new - for testing if operands are encoded)
+FIRST_OPERAND_QUESTIONS = [
+    "What was the first number in the calculation?",
+    "What was the first operand?",
+    "What number came first in this operation?",
+]
+
+SECOND_OPERAND_QUESTIONS = [
+    "What was the second number in the calculation?",
+    "What was the second operand?",
+    "What number came second in this operation?",
+]
+
+FULL_CALCULATION_QUESTIONS = [
+    "What calculation was performed?",
+    "Describe the full arithmetic operation.",
+    "What was the complete calculation?",
 ]
 
 # Direct operation questions (what we want to test)
@@ -174,6 +195,56 @@ def generate_qa_from_problem(
             latent_vectors=[latent_z2],
             latent_positions=[1],
             question_type="operation_binary",
+            source_prompt="synthetic",
+            is_multi_latent=False,
+        ))
+    
+    # -------------------------------------------------------------------------
+    # 4b. OPERAND EXTRACTION - First operand (X) from z2
+    # -------------------------------------------------------------------------
+    X = problem["X"]
+    Y = problem["Y"]
+    op_symbol = {"add": "+", "sub": "-", "mul": "*"}[op]
+    
+    for q in FIRST_OPERAND_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=str(X),
+            latent_vectors=[latent_z2],
+            latent_positions=[1],
+            question_type="operand_first",
+            source_prompt="synthetic",
+            is_multi_latent=False,
+        ))
+    
+    # -------------------------------------------------------------------------
+    # 4c. OPERAND EXTRACTION - Second operand (Y) from z2
+    # -------------------------------------------------------------------------
+    for q in SECOND_OPERAND_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=str(Y),
+            latent_vectors=[latent_z2],
+            latent_positions=[1],
+            question_type="operand_second",
+            source_prompt="synthetic",
+            is_multi_latent=False,
+        ))
+    
+    # -------------------------------------------------------------------------
+    # 4d. FULL CALCULATION - "X op Y" from z2
+    # -------------------------------------------------------------------------
+    full_calc = f"{X} {op_symbol} {Y}"
+    for q in FULL_CALCULATION_QUESTIONS:
+        examples.append(LatentQAExample(
+            prompt=format_oracle_prompt(q, 1),
+            question=q,
+            answer=full_calc,
+            latent_vectors=[latent_z2],
+            latent_positions=[1],
+            question_type="full_calculation",
             source_prompt="synthetic",
             is_multi_latent=False,
         ))
