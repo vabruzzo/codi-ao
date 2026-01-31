@@ -185,23 +185,11 @@ def analyze_latent_for_operation(
                 op_probs[op] += prob
     
     # Predicted operation (highest prob among detected)
-    # If no operation tokens in top-k, use "add" as default
+    # If no operation tokens in top-k, mark as "no_match"
     if sum(op_probs.values()) > 0:
         predicted_op = max(op_probs, key=op_probs.get)
     else:
-        # Fall back to checking if any op keywords appear in top tokens
-        predicted_op = "add"  # Default
-        for token in top_tokens:
-            token_lower = token.lower().strip()
-            if any(kw in token_lower for kw in ["sub", "minus", "-"]):
-                predicted_op = "sub"
-                break
-            elif any(kw in token_lower for kw in ["mul", "times", "*", "×"]):
-                predicted_op = "mul"
-                break
-            elif any(kw in token_lower for kw in ["add", "plus", "+"]):
-                predicted_op = "add"
-                break
+        predicted_op = "no_match"
     
     correct = (predicted_op == target_op)
     
@@ -281,8 +269,11 @@ def main():
         "operation_detection": {
             "correct": 0,
             "total": 0,
+            "no_match_count": 0,
             "by_op": {},
             "confusion": {"add": {}, "sub": {}, "mul": {}},
+            "avg_probs": {"add": 0.0, "sub": 0.0, "mul": 0.0},
+            "examples": [],
         },
         "config": {
             "n_test": args.n_test,
@@ -374,19 +365,39 @@ def main():
         analysis = analyze_latent_for_operation(codi, z2, op, args.top_k)
         
         results["operation_detection"]["total"] += 1
-        if analysis["correct"]:
+        pred = analysis["predicted_op"]
+        
+        # Track no_match
+        if pred == "no_match":
+            results["operation_detection"]["no_match_count"] += 1
+        elif analysis["correct"]:
             results["operation_detection"]["correct"] += 1
         
+        # Accumulate probabilities for averaging
+        for op_name in ["add", "sub", "mul"]:
+            results["operation_detection"]["avg_probs"][op_name] += analysis["op_probs"][op_name]
+        
         # Per-operation stats
-        results["operation_detection"]["by_op"].setdefault(op, {"correct": 0, "total": 0})
+        results["operation_detection"]["by_op"].setdefault(op, {"correct": 0, "total": 0, "no_match": 0})
         results["operation_detection"]["by_op"][op]["total"] += 1
-        if analysis["correct"]:
+        if pred == "no_match":
+            results["operation_detection"]["by_op"][op]["no_match"] += 1
+        elif analysis["correct"]:
             results["operation_detection"]["by_op"][op]["correct"] += 1
         
         # Confusion matrix
-        pred = analysis["predicted_op"]
         results["operation_detection"]["confusion"][op].setdefault(pred, 0)
         results["operation_detection"]["confusion"][op][pred] += 1
+        
+        # Store examples
+        if len(results["operation_detection"]["examples"]) < 15:
+            results["operation_detection"]["examples"].append({
+                "true_op": op,
+                "predicted_op": pred,
+                "op_probs": analysis["op_probs"],
+                "top_tokens": analysis["top_k_tokens"][:5],  # Top 5 only
+                "correct": analysis["correct"]
+            })
     
     # Calculate averages
     for key in ["step1_extraction", "step2_extraction", "step3_extraction_z5", "step3_extraction_z6"]:
@@ -395,6 +406,12 @@ def main():
             results[key]["avg_target_prob"] /= total
             if results[key]["ranks"]:
                 results[key]["avg_rank"] = sum(results[key]["ranks"]) / len(results[key]["ranks"])
+    
+    # Average operation probabilities
+    op_total = results["operation_detection"]["total"]
+    if op_total > 0:
+        for op_name in ["add", "sub", "mul"]:
+            results["operation_detection"]["avg_probs"][op_name] /= op_total
     
     # =========================================================================
     # PRINT RESULTS
@@ -424,12 +441,23 @@ def main():
     
     print(f"\n--- Operation Detection (from z2) ---")
     op_r = results["operation_detection"]
+    matched = op_r["total"] - op_r["no_match_count"]
     print(f"Overall: {pct(op_r['correct'], op_r['total'])} ({op_r['correct']}/{op_r['total']})")
+    print(f"No operation tokens in top-k: {op_r['no_match_count']}/{op_r['total']} ({100*op_r['no_match_count']/op_r['total']:.1f}%)")
+    if matched > 0:
+        print(f"Accuracy when matched: {pct(op_r['correct'], matched)} ({op_r['correct']}/{matched})")
     
+    print("\nPer-operation breakdown:")
     for op in ["add", "sub", "mul"]:
         if op in op_r["by_op"]:
             op_data = op_r["by_op"][op]
-            print(f"  {op}: {pct(op_data['correct'], op_data['total'])}")
+            no_match = op_data.get("no_match", 0)
+            print(f"  {op}: {pct(op_data['correct'], op_data['total'])} (no_match: {no_match})")
+    
+    print("\nAverage token probabilities for operation keywords:")
+    for op_name in ["add", "sub", "mul"]:
+        avg_prob = op_r["avg_probs"][op_name]
+        print(f"  {op_name}: {avg_prob:.6f}")
     
     print("\nConfusion matrix (true -> predicted):")
     for true_op in ["add", "sub", "mul"]:

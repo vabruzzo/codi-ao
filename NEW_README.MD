@@ -1,33 +1,77 @@
-# CODI Activation Oracle - 3-Step Experiment
+# CODI Activation Oracle
 
-Replicating the LessWrong paper's setup with 3-step math problems.
+Interpreting latent reasoning in CODI models using Activation Oracles.
 
-## Plan
+## Overview
 
-### Phase 1: Data Generation
-- [x] Create `generate_synthetic_data_3step.py` for 3-step problems
-- [ ] Generate 1200 problems (1000 train, 200 test)
+This project investigates whether **Activation Oracles** can extract information from CODI's latent reasoning vectors that traditional interpretability methods cannot.
 
-### Phase 2: Training Data
-- [x] Create `generate_ao_training_data_3step.py` for 3 steps
-- [x] Include BOTH single-latent and multi-latent examples
-- [ ] Generate training data with questions for step1, step2, step3
+We use **3-step math problems** matching the LessWrong paper's setup:
+- Step 1: X op Y = step1 (first intermediate)
+- Step 2: step1 * Z = step2 (second intermediate)  
+- Step 3: step1 + step2 = final_answer
 
-### Phase 3: Training
-- [ ] Train AO on new data
+**Key Question**: Can the AO extract the final answer, which Logit Lens completely fails to decode?
 
-### Phase 4: Evaluation
-- [x] Create `eval_ao_3step.py` (single + multi latent tests)
-- [x] Create `eval_logit_lens_3step.py` (step1, step2, step3, operation)
-- [ ] Run all evaluations
+## Results Summary
 
-### Phase 5: Analysis
-- [ ] Compare to LessWrong findings
-- [ ] Write up results
+### Logit Lens Results (Baseline)
+
+| Task | Top-10 Acc | Top-1 Acc | Avg Prob |
+|------|-----------|-----------|----------|
+| **Step 1 (z2)** | **100%** | **98%** | 0.956 |
+| **Step 2 (z4)** | **100%** | **87%** | 0.795 |
+| Step 3 / Final (z5) | 1% | 0% | ~0 |
+| Step 3 / Final (z6) | 0% | 0% | 0 |
+| Operation (z2) | 44% | - | - |
+
+**Key Findings**:
+1. **Intermediate steps are linearly encoded**: z2 and z4 strongly encode step 1 and step 2 results (98% and 87% top-1 accuracy)
+2. **Final answer is NOT linearly encoded**: Neither z5 nor z6 contain the final answer in a form Logit Lens can read (0% accuracy)
+3. **Operation detection is weak and biased**: 44% overall, with 0% on multiplication (always misclassified as addition)
+
+### Activation Oracle Results
+
+*Training in progress - results to be added*
+
+| Task | AO (single latent) | AO (all 6) |
+|------|-------------------|------------|
+| Step 1 (z2) | TBD | TBD |
+| Step 2 (z4) | TBD | TBD |
+| Step 3 (z5) | TBD | TBD |
+| Step 3 (z6) | TBD | TBD |
+| Step 3 (multi) | TBD | TBD |
+| Operation | TBD | TBD |
+| First operand | TBD | TBD |
+| Second operand | TBD | TBD |
+| Full calc (strict) | TBD | TBD |
+| Full calc (semantic) | TBD | TBD |
 
 ---
 
-## Problem Structure (matching LessWrong)
+## Background
+
+### CODI Model
+
+CODI (Chain of Discrete Ideas) performs "latent reasoning" by producing continuous vectors instead of text tokens for chain-of-thought. The model we use ([bcywinski/codi_llama1b-answer_only](https://huggingface.co/bcywinski/codi_llama1b-answer_only)) is based on LLaMA 3.2 1B and produces 6 latent vectors (z1-z6) for reasoning.
+
+Based on prior work ([LessWrong blog](https://www.lesswrong.com/posts/bDpKHD5haQ3pqjEfq/can-we-interpret-latent-reasoning-using-current-mechanistic)):
+- **z2** (index 1): Step 1 intermediate result
+- **z4** (index 3): Step 2 intermediate result
+- **z6** (index 5): Step 3 / final answer (?)
+
+### Activation Oracles
+
+From the [Activation Oracles paper](https://arxiv.org/abs/2311.07328): A separate LLM fine-tuned to decode information from activation vectors via natural language Q&A. Uses:
+- **Norm-matched additive injection** to insert activation vectors
+- **LoRA fine-tuning** for efficient training
+- **Placeholder tokens** (`" ?"`) to mark injection points
+
+---
+
+## Methodology
+
+### Problem Structure (3-Step)
 
 **Example:**
 > "A team starts with 3 members. They recruit 5 new members. Then each current member recruits 2 additional people. How many people are there now on the team?"
@@ -37,14 +81,16 @@ Replicating the LessWrong paper's setup with 3-step math problems.
 - Step 2: 8 * 2 = **16** (step1 * Z)
 - Step 3: 8 + 16 = **24** (step1 + step2 = final answer)
 
-**Latent encoding (expected):**
-- z2 (index 1): step1 result
-- z4 (index 3): step2 result
-- z6 (index 5): step3 / final answer (?)
+### Data Generation
 
----
+- **1,200 synthetic math problems**: Seeded generation (seed=42) with balanced operations (add/sub/mul)
+- **Train/test split**: 1,000 training / 200 held-out test problems
+- **3-step structure**:
+  - Step 1: X op Y (where op = add/sub/mul)
+  - Step 2: step1 * Z (always multiplication)
+  - Step 3: step1 + step2 (always addition = final answer)
 
-## Training Data Structure
+### Training Data Structure
 
 Training includes BOTH single-latent and multi-latent examples:
 
@@ -52,43 +98,45 @@ Training includes BOTH single-latent and multi-latent examples:
 |-------------|---------|-----------|
 | Single z2 | position 1 only | step1 extraction, operation, operands |
 | Single z4 | position 3 only | step2 extraction |
-| Single z6 | position 5 only | step3/final answer extraction |
+| Single z5 | position 4 only | step3/final answer |
+| Single z6 | position 5 only | step3/final answer |
 | Multi (all 6) | positions 0-5 | all questions |
 
 This enables evaluation of:
 1. **What does each latent encode?** (single-latent tests)
 2. **Does multi-latent context help?** (compare single vs multi)
 
----
+### Logit Lens Baseline
 
-## Results
+- **Layer norm applied**: Final layer norm before projecting to vocabulary space
+- **Top-K analysis**: Check if target number/token appears in top-10 predictions
+- **Top-1 accuracy**: Whether the highest probability token is correct
+- **Operation detection**: Sum probability mass over operation-related tokens
 
-*To be filled after experiments*
+### Activation Oracle Evaluation
 
-### Extraction Results
-
-| Task | Logit Lens (Top-10) | Logit Lens (Top-1) | AO (single) | AO (multi) |
-|------|---------------------|--------------------| ------------|------------|
-| Step 1 (z2) | TBD | TBD | TBD | TBD |
-| Step 2 (z4) | TBD | TBD | TBD | TBD |
-| Step 3 / Final (z6) | TBD | TBD | TBD | TBD |
-
-### Operation & Operand Extraction
-
-| Task | Logit Lens | AO (single z2) | AO (multi) |
-|------|------------|----------------|------------|
-| Operation | TBD | TBD | TBD |
-| First operand | N/A | TBD | TBD |
-| Second operand | N/A | TBD | TBD |
-| Full calc (strict) | N/A | TBD | TBD |
-| Full calc (semantic) | N/A | TBD | TBD |
-| Comparison | N/A | N/A | TBD |
+- **Held-out test set**: 200 problems not seen during training
+- **Single vs multi**: Compare single-latent (z2, z4, z5, z6) vs all-6-latent performance
+- **No problem context**: The AO sees only the question and latent vector(s), not the original prompt
+- **Shuffle sanity check**: Randomize latent-problem mapping to verify AO uses latent information
 
 ---
 
-## Commands
+## Installation
 
-### Phase 1: Generate 3-step problems
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/codi-ao.git
+cd codi-ao
+
+# Install dependencies (requires uv)
+uv sync
+```
+
+## Usage
+
+### 1. Generate 3-Step Synthetic Problems
+
 ```bash
 uv run python scripts/generate_synthetic_data_3step.py \
     --n_samples 1200 \
@@ -96,7 +144,10 @@ uv run python scripts/generate_synthetic_data_3step.py \
     --output data/synthetic_problems_3step.json
 ```
 
-### Phase 2: Generate training data
+### 2. Generate AO Training Data
+
+Collects CODI latents and creates Q&A pairs (holds out last 200 for testing):
+
 ```bash
 uv run python scripts/generate_ao_training_data_3step.py \
     --problems data/synthetic_problems_3step.json \
@@ -104,56 +155,79 @@ uv run python scripts/generate_ao_training_data_3step.py \
     --holdout 200
 ```
 
-### Phase 3: Train AO
+### 3. Run Logit Lens Baseline
+
+```bash
+uv run python scripts/eval_logit_lens_3step.py \
+    --problems data/synthetic_problems_3step.json \
+    --n_test 200 \
+    --output new_results/logit_lens_3step.json
+```
+
+### 4. Train Activation Oracle
+
 ```bash
 uv run python scripts/train.py \
     --data data/ao_training_data_3step.jsonl \
     --output_dir checkpoints/ao_3step \
     --epochs 2 \
-    --batch_size 16
+    --batch_size 64
 ```
 
-### Phase 4: Evaluate
+### 5. Evaluate Activation Oracle
+
 ```bash
-# AO evaluation - normal
+# Normal evaluation
 uv run python scripts/eval_ao_3step.py \
     --checkpoint checkpoints/ao_3step \
     --problems data/synthetic_problems_3step.json \
     --n_test 200 \
-    --output results/ao_3step_evaluation.json
+    --output new_results/ao_3step_evaluation.json
 
-# AO evaluation - shuffle sanity check
+# Shuffle sanity check
 uv run python scripts/eval_ao_3step.py \
     --checkpoint checkpoints/ao_3step \
     --problems data/synthetic_problems_3step.json \
     --n_test 200 \
     --shuffle \
-    --output results/ao_3step_shuffle.json
-
-# Logit Lens evaluation (run anytime after generating problems)
-uv run python scripts/eval_logit_lens_3step.py \
-    --problems data/synthetic_problems_3step.json \
-    --n_test 200 \
-    --output results/logit_lens_3step.json
+    --output new_results/ao_3step_shuffle.json
 ```
 
 ---
 
-## Progress Log
+## Project Structure
 
-### Session Start
-- Created `generate_synthetic_data_3step.py` for 3-step problems
-- Created `generate_ao_training_data_3step.py` for training data
-  - Includes BOTH single-latent and multi-latent examples
-  - Single z2 → step1, operation, operands
-  - Single z4 → step2
-  - Single z6 → step3/final answer
-  - Multi (all 6) → all questions
-- Created `eval_ao_3step.py` for comprehensive AO evaluation
-  - Tests single vs multi latent performance
-  - Includes shuffle sanity check
-- Created `eval_logit_lens_3step.py` for Logit Lens baseline
-  - Step 1 from z2, Step 2 from z4, Step 3 from z6
-  - Operation detection from z2
-  - Top-K and Top-1 accuracy
-- Next: Generate problems and training data
+```
+codi-ao/
+├── configs/
+│   └── default.yaml                    # Model configuration
+├── scripts/
+│   ├── generate_synthetic_data_3step.py    # Generate 3-step math problems
+│   ├── generate_ao_training_data_3step.py  # Collect latents + create QA pairs
+│   ├── train.py                            # Train Activation Oracle
+│   ├── eval_logit_lens_3step.py            # Logit Lens baseline
+│   └── eval_ao_3step.py                    # Evaluate trained AO
+├── src/
+│   ├── activation_oracle.py    # AO model implementation
+│   ├── codi_wrapper.py         # CODI model interface
+│   ├── codi_model.py           # CODI model implementation
+│   └── datasets/
+│       └── latent_qa.py        # Training data utilities
+├── new_results/                # Evaluation outputs
+│   ├── logit_lens_3step.json
+│   └── ao_3step_evaluation.json
+└── checkpoints/                # Trained models
+    └── ao_3step/
+```
+
+---
+
+## References
+
+- [CODI Paper](https://arxiv.org/abs/2310.06632) - Original latent reasoning framework
+- [LessWrong Blog Post](https://www.lesswrong.com/posts/bDpKHD5haQ3pqjEfq/can-we-interpret-latent-reasoning-using-current-mechanistic) - CODI interpretability study
+- [Activation Oracles Paper](https://arxiv.org/abs/2311.07328) - Natural language probing method
+
+## License
+
+MIT
