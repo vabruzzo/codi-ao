@@ -18,7 +18,7 @@ Replicating the LessWrong paper's setup with 3-step math problems.
 
 ### Phase 4: Evaluation
 - [x] Create `eval_ao_3step.py` (single + multi latent tests)
-- [ ] Create `eval_logit_lens_3step.py` for step3
+- [x] Create `eval_logit_lens_3step.py` (step1, step2, step3, operation)
 - [ ] Run all evaluations
 
 ### Phase 5: Analysis
@@ -67,21 +67,22 @@ This enables evaluation of:
 
 ### Extraction Results
 
-| Task | Logit Lens | AO (single latent) | AO (all 6) |
-|------|------------|-------------------|------------|
-| Step 1 (z2) | TBD | TBD | TBD |
-| Step 2 (z4) | TBD | TBD | TBD |
-| Step 3 / Final (z6) | TBD | TBD | TBD |
+| Task | Logit Lens (Top-10) | Logit Lens (Top-1) | AO (single) | AO (multi) |
+|------|---------------------|--------------------| ------------|------------|
+| Step 1 (z2) | TBD | TBD | TBD | TBD |
+| Step 2 (z4) | TBD | TBD | TBD | TBD |
+| Step 3 / Final (z6) | TBD | TBD | TBD | TBD |
 
-### Other Metrics
+### Operation & Operand Extraction
 
-| Task | AO (single) | AO (multi) |
-|------|-------------|------------|
-| Operation (step 1) | TBD | TBD |
-| First operand | TBD | TBD |
-| Second operand | TBD | TBD |
-| Full calculation | TBD | TBD |
-| Comparison | N/A | TBD |
+| Task | Logit Lens | AO (single z2) | AO (multi) |
+|------|------------|----------------|------------|
+| Operation | TBD | TBD | TBD |
+| First operand | N/A | TBD | TBD |
+| Second operand | N/A | TBD | TBD |
+| Full calc (strict) | N/A | TBD | TBD |
+| Full calc (semantic) | N/A | TBD | TBD |
+| Comparison | N/A | N/A | TBD |
 
 ---
 
@@ -129,9 +130,10 @@ uv run python scripts/eval_ao_3step.py \
     --shuffle \
     --output results/ao_3step_shuffle.json
 
-# Logit Lens evaluation (to be created)
+# Logit Lens evaluation (run anytime after generating problems)
 uv run python scripts/eval_logit_lens_3step.py \
-    --data data/synthetic_problems_3step.json \
+    --problems data/synthetic_problems_3step.json \
+    --n_test 200 \
     --output results/logit_lens_3step.json
 ```
 
@@ -147,7 +149,11 @@ uv run python scripts/eval_logit_lens_3step.py \
   - Single z4 → step2
   - Single z6 → step3/final answer
   - Multi (all 6) → all questions
-- Created `eval_ao_3step.py` for comprehensive evaluation
+- Created `eval_ao_3step.py` for comprehensive AO evaluation
   - Tests single vs multi latent performance
   - Includes shuffle sanity check
+- Created `eval_logit_lens_3step.py` for Logit Lens baseline
+  - Step 1 from z2, Step 2 from z4, Step 3 from z6
+  - Operation detection from z2
+  - Top-K and Top-1 accuracy
 - Next: Generate problems and training data
