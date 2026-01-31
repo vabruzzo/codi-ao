@@ -48,7 +48,7 @@ def load_codi_model(config_path="configs/default.yaml"):
 
 def load_ao_model(checkpoint_path: str):
     """Load the trained Activation Oracle model."""
-    from src.activation_oracle import ActivationOracle, AOConfig, AOPrompt
+    from src.activation_oracle import ActivationOracle, AOConfig
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -62,30 +62,23 @@ def load_ao_model(checkpoint_path: str):
     ao = ActivationOracle.from_pretrained(config=config, lora_path=checkpoint_path)
     ao.eval_mode()
     
-    return ao, AOPrompt
+    return ao
 
 
-def ao_generate(ao, AOPrompt, latent_vectors, positions, question: str):
+def ao_generate(ao, latent_vectors: list, question: str, max_new_tokens: int = 32):
     """Generate response from AO."""
-    # Ensure tensors on correct device
-    device = ao.config.device
-    latents_tensor = []
-    for lat in latent_vectors:
-        if isinstance(lat, list):
-            lat = torch.tensor(lat, dtype=torch.float32)
-        latents_tensor.append(lat.to(device))
+    # Convert latent vectors to tensors if needed
+    vectors = []
+    for v in latent_vectors:
+        if isinstance(v, torch.Tensor):
+            vectors.append(v)
+        elif isinstance(v, list):
+            vectors.append(torch.tensor(v, dtype=torch.float32))
+        else:
+            vectors.append(v)
     
-    num_latents = len(latents_tensor)
-    placeholders = " ?" * num_latents
-    prompt_text = f"Layer 50%:{placeholders} {question}"
-    
-    prompt = AOPrompt(
-        text=prompt_text,
-        latent_vectors=latents_tensor,
-        latent_positions=positions,
-    )
-    
-    response = ao.generate(prompt, max_new_tokens=32, temperature=0)
+    prompt = ao.create_prompt(question=question, activation_vectors=vectors)
+    response = ao.generate(prompt=prompt, max_new_tokens=max_new_tokens, temperature=0)
     return response.strip()
 
 
@@ -164,7 +157,7 @@ def main():
     codi = load_codi_model()
     
     print(f"Loading Activation Oracle from {args.checkpoint}...")
-    ao, AOPrompt = load_ao_model(args.checkpoint)
+    ao = load_ao_model(args.checkpoint)
     
     # Initialize results
     results = {
@@ -277,7 +270,7 @@ def main():
         }
         
         # Single z2
-        resp = ao_generate(ao, AOPrompt, [z2], [1], step1_q)
+        resp = ao_generate(ao, [z2], step1_q)
         pred = extract_number(resp)
         correct = (pred == step1)
         results["extraction_step1_single"]["total"] += 1
@@ -290,7 +283,7 @@ def main():
             })
         
         # Multi (all 6)
-        resp_multi = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], step1_q)
+        resp_multi = ao_generate(ao, latents, step1_q)
         pred_multi = extract_number(resp_multi)
         correct_multi = (pred_multi == step1)
         results["extraction_step1_multi"]["total"] += 1
@@ -307,7 +300,7 @@ def main():
         # =====================================================================
         
         # Single z4
-        resp = ao_generate(ao, AOPrompt, [z4], [3], step2_q)
+        resp = ao_generate(ao, [z4], step2_q)
         pred = extract_number(resp)
         correct = (pred == step2)
         results["extraction_step2_single"]["total"] += 1
@@ -320,7 +313,7 @@ def main():
             })
         
         # Multi (all 6)
-        resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], step2_q)
+        resp = ao_generate(ao, latents, step2_q)
         pred = extract_number(resp)
         correct = (pred == step2)
         results["extraction_step2_multi"]["total"] += 1
@@ -337,7 +330,7 @@ def main():
         # =====================================================================
         
         # Single z5
-        resp = ao_generate(ao, AOPrompt, [z5], [4], step3_q)
+        resp = ao_generate(ao, [z5], step3_q)
         pred = extract_number(resp)
         correct = (pred == step3)
         results["extraction_step3_z5_single"]["total"] += 1
@@ -350,7 +343,7 @@ def main():
             })
         
         # Single z6
-        resp = ao_generate(ao, AOPrompt, [z6], [5], step3_q)
+        resp = ao_generate(ao, [z6], step3_q)
         pred = extract_number(resp)
         correct = (pred == step3)
         results["extraction_step3_z6_single"]["total"] += 1
@@ -363,7 +356,7 @@ def main():
             })
         
         # Multi (all 6)
-        resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], step3_q)
+        resp = ao_generate(ao, latents, step3_q)
         pred = extract_number(resp)
         correct = (pred == step3)
         results["extraction_step3_multi"]["total"] += 1
@@ -382,7 +375,7 @@ def main():
         expected_op = op_names[op]
         
         # Single z2
-        resp = ao_generate(ao, AOPrompt, [z2], [1], op_q)
+        resp = ao_generate(ao, [z2], op_q)
         correct = expected_op.lower() in resp.lower()
         results["operation_single"]["total"] += 1
         if correct:
@@ -393,7 +386,7 @@ def main():
             results["operation_single"]["by_op"][op]["correct"] += 1
         
         # Multi
-        resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], op_q)
+        resp = ao_generate(ao, latents, op_q)
         correct = expected_op.lower() in resp.lower()
         results["operation_multi"]["total"] += 1
         if correct:
@@ -408,28 +401,28 @@ def main():
         # =====================================================================
         
         # First operand - single
-        resp = ao_generate(ao, AOPrompt, [z2], [1], first_op_q)
+        resp = ao_generate(ao, [z2], first_op_q)
         pred = extract_number(resp)
         results["operand_first_single"]["total"] += 1
         if pred == X:
             results["operand_first_single"]["correct"] += 1
         
         # First operand - multi
-        resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], first_op_q)
+        resp = ao_generate(ao, latents, first_op_q)
         pred = extract_number(resp)
         results["operand_first_multi"]["total"] += 1
         if pred == X:
             results["operand_first_multi"]["correct"] += 1
         
         # Second operand - single
-        resp = ao_generate(ao, AOPrompt, [z2], [1], second_op_q)
+        resp = ao_generate(ao, [z2], second_op_q)
         pred = extract_number(resp)
         results["operand_second_single"]["total"] += 1
         if pred == Y:
             results["operand_second_single"]["correct"] += 1
         
         # Second operand - multi
-        resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], second_op_q)
+        resp = ao_generate(ao, latents, second_op_q)
         pred = extract_number(resp)
         results["operand_second_multi"]["total"] += 1
         if pred == Y:
@@ -443,7 +436,7 @@ def main():
         true_calc = f"{X} {expected_op_sym} {Y} = {step1}"
         
         # Single
-        resp = ao_generate(ao, AOPrompt, [z2], [1], full_calc_q)
+        resp = ao_generate(ao, [z2], full_calc_q)
         parsed = extract_calculation(resp)
         
         results["full_calc_single_strict"]["total"] += 1
@@ -474,7 +467,7 @@ def main():
             })
         
         # Multi
-        resp_multi = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], full_calc_q)
+        resp_multi = ao_generate(ao, latents, full_calc_q)
         parsed_multi = extract_calculation(resp_multi)
         
         results["full_calc_multi_strict"]["total"] += 1
@@ -506,7 +499,7 @@ def main():
         # COMPARISON (multi only)
         # =====================================================================
         
-        resp = ao_generate(ao, AOPrompt, latents, [0,1,2,3,4,5], compare_q)
+        resp = ao_generate(ao, latents, compare_q)
         expected = "step 2" if step2 > step1 else "step 1"
         correct = expected in resp.lower()
         results["comparison_multi"]["total"] += 1
