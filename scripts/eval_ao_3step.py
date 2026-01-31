@@ -46,27 +46,21 @@ def load_codi_model(config_path="configs/default.yaml"):
     return codi
 
 
-def load_ao_model(checkpoint_path: str, config_path: str = "configs/default.yaml"):
+def load_ao_model(checkpoint_path: str):
     """Load the trained Activation Oracle model."""
     from src.activation_oracle import ActivationOracle, AOConfig, AOPrompt
     
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
-    
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    ao_config = AOConfig(
-        base_model=config["model"]["ao_base_model"],
-        latent_dim=2048,  # LLaMA 3.2 1B hidden dim
-        inject_layer=config["model"].get("ao_injection_layer", 1),
-        lora_r=config["lora"]["rank"],
-        lora_alpha=config["lora"]["alpha"],
+    config = AOConfig(
+        model_name="meta-llama/Llama-3.2-1B-Instruct",
         device=device,
+        lora_r=64,
+        lora_alpha=128,
     )
     
-    ao = ActivationOracle(ao_config)
-    ao.load_checkpoint(checkpoint_path)
-    ao.model.eval()
+    ao = ActivationOracle.from_pretrained(config=config, lora_path=checkpoint_path)
+    ao.eval_mode()
     
     return ao, AOPrompt
 
