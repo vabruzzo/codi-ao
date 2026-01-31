@@ -13,6 +13,8 @@ wheels/
 venv/
 env/
 
+references/
+
 # Type checking
 .mypy_cache/
 
