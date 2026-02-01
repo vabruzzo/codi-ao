@@ -11,7 +11,7 @@ We use **3-step math problems** matching the LessWrong paper's setup:
 - Step 2: step1 * Z = step2 (second intermediate)  
 - Step 3: step1 + step2 = final_answer
 
-**Key Question**: Can the AO extract the final answer, which Logit Lens completely fails to decode?
+**Main Result**: The AO extracts operation type with **82.5% accuracy** where Logit Lens achieves **0%** - demonstrating that CODI's latents encode information in nonlinearly decodable forms that traditional interpretability methods miss.
 
 ## Results Summary
 
@@ -38,20 +38,35 @@ z2 encodes the **numeric result** so strongly that operation keywords ("add", "s
 
 ### Activation Oracle Results
 
-*Training in progress - results to be added*
+| Task | AO (single latent) | AO (all 6) | Logit Lens |
+|------|-------------------|------------|------------|
+| **Step 1 (z2)** | **93.0%** | **97.5%** | 98% (top-1) |
+| **Step 2 (z4)** | **61.0%** | **77.0%** | 87% (top-1) |
+| Step 3 (z5) | 21.5% | - | 0% |
+| Step 3 (z6) | 7.0% | - | 0% |
+| **Step 3 (multi)** | - | **61.5%** | 0% |
+| **Operation (z2)** | **82.5%** | **85.5%** | **0%** |
+| First operand | 26.5% | 18.5% | - |
+| Second operand | 26.0% | 31.5% | - |
+| Full calc (strict) | 12.0% | 9.0% | - |
+| Full calc (semantic) | 33.5% | 53.0% | - |
+| **Comparison** | - | **100%** | - |
 
-| Task | AO (single latent) | AO (all 6) |
-|------|-------------------|------------|
-| Step 1 (z2) | TBD | TBD |
-| Step 2 (z4) | TBD | TBD |
-| Step 3 (z5) | TBD | TBD |
-| Step 3 (z6) | TBD | TBD |
-| Step 3 (multi) | TBD | TBD |
-| Operation | TBD | TBD |
-| First operand | TBD | TBD |
-| Second operand | TBD | TBD |
-| Full calc (strict) | TBD | TBD |
-| Full calc (semantic) | TBD | TBD |
+### Key Findings
+
+1. **AO extracts what Logit Lens cannot**: Operation detection jumps from **0% → 82.5%**. The operation type IS encoded in z2, but requires nonlinear decoding.
+
+2. **Position-specific encoding confirmed**: 
+   - z2 is excellent for step1 (93%), poor for step3 (when used as z5/z6: 21.5%/7%)
+   - This rules out "all latents contain everything" - there's specialized encoding per position
+
+3. **Multi-latent context helps significantly**:
+   - Step 3 extraction: 21.5% (z5 alone) → **61.5%** (all 6 latents)
+   - The final answer appears distributed across latents or requires earlier step context
+
+4. **Operands are poorly encoded (~26%)**: Latents focus on intermediate computations, not original input values (X, Y)
+
+5. **Comparison is trivial (100%)**: When given all latents, the AO perfectly determines which step result is larger
 
 ---
 
@@ -226,6 +241,28 @@ codi-ao/
 └── checkpoints/                # Trained models
     └── ao_3step/
 ```
+
+---
+
+## Discussion
+
+### Methodological Validity
+
+A key concern: are we just teaching the AO to output what we *want* to find, rather than what's actually encoded?
+
+**Evidence against this concern:**
+
+1. **Held-out test data**: The AO is evaluated on 200 problems never seen during training. If it memorized mappings, it would fail on new problems.
+
+2. **Position-specific accuracy patterns**: z2 achieves 93% for step1 but z5/z6 achieve only 21.5%/7% for step3. If all latents contained the same information, accuracy would be uniform. The fact that different positions excel at different tasks confirms specialized encoding.
+
+3. **AO can't re-derive answers**: The AO never sees the original problem text - only the latent vector and a question. It cannot re-solve the problem.
+
+### Why Logit Lens Fails for Operations
+
+Logit Lens projects latents directly to vocabulary space. For step values, this works because numbers dominate the representation. But operation type appears encoded in a way that doesn't linearly map to tokens like "add" or "multiply" - it requires the nonlinear decoder capacity of the AO to extract.
+
+This is consistent with the hypothesis that some information is encoded in "directions" or "features" that don't correspond to single vocabulary tokens.
 
 ---
 

@@ -191,6 +191,25 @@ def main():
         # Comparison (multi only)
         "comparison_multi": {"correct": 0, "total": 0},
         
+        # CODI correctness breakdown for step3 extraction
+        "codi_analysis": {
+            "codi_correct_count": 0,
+            "codi_total": 0,
+            # When CODI is correct, does AO extract correctly?
+            "ao_step3_given_codi_correct": {"correct": 0, "total": 0},
+            # When CODI is wrong, does AO extract CODI's (wrong) answer?
+            "ao_matches_codi_given_codi_wrong": {"matches": 0, "total": 0},
+            # Does AO extraction match CODI output (regardless of correctness)?
+            "ao_matches_codi_output": {"matches": 0, "total": 0},
+            # Step 1 and Step 2 accuracy broken down by CODI correctness
+            "ao_step1_given_codi_correct": {"correct": 0, "total": 0},
+            "ao_step1_given_codi_wrong": {"correct": 0, "total": 0},
+            "ao_step2_given_codi_correct": {"correct": 0, "total": 0},
+            "ao_step2_given_codi_wrong": {"correct": 0, "total": 0},
+            # Store examples where CODI was wrong for detailed analysis
+            "codi_wrong_examples": [],
+        },
+        
         # Config
         "config": {
             "checkpoint": args.checkpoint,
@@ -200,14 +219,33 @@ def main():
     }
     
     # Collect all latents first (for shuffle mode)
+    # Also capture CODI's actual predictions for correctness analysis
     print("\nCollecting latents...")
     all_latents_list = []
+    codi_predictions = []  # Store CODI's actual outputs
+    codi_correct_list = []  # Store whether CODI was correct
+    
     for problem in tqdm(test_problems, desc="Collecting"):
-        latent_result = codi.collect_latents(problem["prompt"], return_hidden_states=False)
+        ground_truth = str(problem["step3"])  # Final answer as ground truth
+        latent_result = codi.collect_latents(
+            problem["prompt"], 
+            ground_truth_answer=ground_truth,
+            return_hidden_states=False
+        )
+        
         if len(latent_result.latent_vectors) >= 6:
             all_latents_list.append(latent_result.latent_vectors[:6])
+            codi_predictions.append(latent_result.predicted_answer)
+            codi_correct_list.append(latent_result.is_correct)
         else:
             all_latents_list.append(None)
+            codi_predictions.append(None)
+            codi_correct_list.append(None)
+    
+    # Report CODI accuracy
+    valid_codi = [c for c in codi_correct_list if c is not None]
+    codi_accuracy = sum(valid_codi) / len(valid_codi) * 100 if valid_codi else 0
+    print(f"\nCODI accuracy on test set: {codi_accuracy:.1f}% ({sum(valid_codi)}/{len(valid_codi)})")
     
     # Shuffle if requested
     if args.shuffle:
@@ -285,14 +323,14 @@ def main():
         # Multi (all 6)
         resp_multi = ao_generate(ao, latents, step1_q)
         pred_multi = extract_number(resp_multi)
-        correct_multi = (pred_multi == step1)
+        step1_multi_correct = (pred_multi == step1)  # Store for CODI analysis
         results["extraction_step1_multi"]["total"] += 1
-        if correct_multi:
+        if step1_multi_correct:
             results["extraction_step1_multi"]["correct"] += 1
         if len(results["extraction_step1_multi"]["examples"]) < 10:
             results["extraction_step1_multi"]["examples"].append({
                 "problem": problem_ctx, "question": step1_q, "latent_positions": [0,1,2,3,4,5],
-                "true": step1, "response": resp_multi, "parsed": pred_multi, "correct": correct_multi
+                "true": step1, "response": resp_multi, "parsed": pred_multi, "correct": step1_multi_correct
             })
         
         # =====================================================================
@@ -315,9 +353,9 @@ def main():
         # Multi (all 6)
         resp = ao_generate(ao, latents, step2_q)
         pred = extract_number(resp)
-        correct = (pred == step2)
+        step2_multi_correct = (pred == step2)  # Store for CODI analysis
         results["extraction_step2_multi"]["total"] += 1
-        if correct:
+        if step2_multi_correct:
             results["extraction_step2_multi"]["correct"] += 1
         if len(results["extraction_step2_multi"]["examples"]) < 10:
             results["extraction_step2_multi"]["examples"].append({
@@ -363,10 +401,82 @@ def main():
         if correct:
             results["extraction_step3_multi"]["correct"] += 1
         if len(results["extraction_step3_multi"]["examples"]) < 10:
+            codi_pred_for_example = codi_predictions[i]
+            codi_pred_num_for_example = extract_number(codi_pred_for_example) if codi_pred_for_example else None
             results["extraction_step3_multi"]["examples"].append({
                 "problem": problem_ctx, "question": step3_q, "latent_positions": [0,1,2,3,4,5],
-                "true": step3, "response": resp, "parsed": pred, "correct": correct
+                "true": step3, 
+                "codi_output": codi_pred_for_example,
+                "codi_output_parsed": codi_pred_num_for_example,
+                "codi_correct": codi_correct_list[i],
+                "ao_response": resp, 
+                "ao_parsed": pred, 
+                "ao_correct_vs_truth": correct,
+                "ao_matches_codi": (pred == codi_pred_num_for_example) if codi_pred_num_for_example is not None else None
             })
+        
+        # =====================================================================
+        # CODI CORRECTNESS ANALYSIS (for step3 multi)
+        # =====================================================================
+        codi_pred = codi_predictions[i]
+        codi_is_correct = codi_correct_list[i]
+        
+        if codi_pred is not None:
+            # Extract number from CODI's prediction
+            codi_pred_num = extract_number(codi_pred)
+            
+            results["codi_analysis"]["codi_total"] += 1
+            if codi_is_correct:
+                results["codi_analysis"]["codi_correct_count"] += 1
+            
+            # Does AO's extraction match CODI's actual output?
+            ao_matches_codi = (pred == codi_pred_num)
+            results["codi_analysis"]["ao_matches_codi_output"]["total"] += 1
+            if ao_matches_codi:
+                results["codi_analysis"]["ao_matches_codi_output"]["matches"] += 1
+            
+            # When CODI is correct, does AO extract correctly?
+            if codi_is_correct:
+                # Step 3 (final answer) accuracy
+                results["codi_analysis"]["ao_step3_given_codi_correct"]["total"] += 1
+                if correct:  # AO matches ground truth for step3
+                    results["codi_analysis"]["ao_step3_given_codi_correct"]["correct"] += 1
+                
+                # Step 1 and Step 2 accuracy when CODI is correct
+                results["codi_analysis"]["ao_step1_given_codi_correct"]["total"] += 1
+                if step1_multi_correct:
+                    results["codi_analysis"]["ao_step1_given_codi_correct"]["correct"] += 1
+                results["codi_analysis"]["ao_step2_given_codi_correct"]["total"] += 1
+                if step2_multi_correct:
+                    results["codi_analysis"]["ao_step2_given_codi_correct"]["correct"] += 1
+            else:
+                # When CODI is wrong, does AO extract CODI's (wrong) answer?
+                results["codi_analysis"]["ao_matches_codi_given_codi_wrong"]["total"] += 1
+                if ao_matches_codi:
+                    results["codi_analysis"]["ao_matches_codi_given_codi_wrong"]["matches"] += 1
+                
+                # Step 1 and Step 2 accuracy when CODI is wrong
+                results["codi_analysis"]["ao_step1_given_codi_wrong"]["total"] += 1
+                if step1_multi_correct:
+                    results["codi_analysis"]["ao_step1_given_codi_wrong"]["correct"] += 1
+                results["codi_analysis"]["ao_step2_given_codi_wrong"]["total"] += 1
+                if step2_multi_correct:
+                    results["codi_analysis"]["ao_step2_given_codi_wrong"]["correct"] += 1
+                
+                # Store examples where CODI was wrong (up to 20)
+                if len(results["codi_analysis"]["codi_wrong_examples"]) < 20:
+                    results["codi_analysis"]["codi_wrong_examples"].append({
+                        "problem": problem_ctx,
+                        "ground_truth": step3,
+                        "codi_output": codi_pred,
+                        "codi_output_parsed": codi_pred_num,
+                        "ao_response": resp,
+                        "ao_parsed": pred,
+                        "ao_matches_codi": ao_matches_codi,
+                        "ao_matches_truth": correct,
+                        "ao_step1_correct": step1_multi_correct,
+                        "ao_step2_correct": step2_multi_correct,
+                    })
         
         # =====================================================================
         # OPERATION DETECTION
@@ -548,6 +658,37 @@ def main():
     
     print("\n--- Comparison (multi only) ---")
     print(f"Comparison: {pct(results['comparison_multi'])}")
+    
+    # CODI correctness analysis
+    codi_analysis = results["codi_analysis"]
+    print("\n--- CODI Correctness Analysis ---")
+    print(f"CODI accuracy: {codi_analysis['codi_correct_count']}/{codi_analysis['codi_total']} ({codi_analysis['codi_correct_count']/codi_analysis['codi_total']*100:.1f}%)" if codi_analysis['codi_total'] > 0 else "CODI accuracy: N/A")
+    
+    # AO extraction given CODI correct
+    print("\nWhen CODI is CORRECT:")
+    ao_s3_cc = codi_analysis["ao_step3_given_codi_correct"]
+    ao_s1_cc = codi_analysis["ao_step1_given_codi_correct"]
+    ao_s2_cc = codi_analysis["ao_step2_given_codi_correct"]
+    if ao_s3_cc["total"] > 0:
+        print(f"  AO Step 1 accuracy: {ao_s1_cc['correct']}/{ao_s1_cc['total']} ({ao_s1_cc['correct']/ao_s1_cc['total']*100:.1f}%)")
+        print(f"  AO Step 2 accuracy: {ao_s2_cc['correct']}/{ao_s2_cc['total']} ({ao_s2_cc['correct']/ao_s2_cc['total']*100:.1f}%)")
+        print(f"  AO Step 3 accuracy: {ao_s3_cc['correct']}/{ao_s3_cc['total']} ({ao_s3_cc['correct']/ao_s3_cc['total']*100:.1f}%)")
+    
+    # AO extraction given CODI wrong
+    print("\nWhen CODI is WRONG:")
+    ao_s1_cw = codi_analysis["ao_step1_given_codi_wrong"]
+    ao_s2_cw = codi_analysis["ao_step2_given_codi_wrong"]
+    ao_codi_wrong = codi_analysis["ao_matches_codi_given_codi_wrong"]
+    if ao_codi_wrong["total"] > 0:
+        print(f"  AO Step 1 accuracy: {ao_s1_cw['correct']}/{ao_s1_cw['total']} ({ao_s1_cw['correct']/ao_s1_cw['total']*100:.1f}%)")
+        print(f"  AO Step 2 accuracy: {ao_s2_cw['correct']}/{ao_s2_cw['total']} ({ao_s2_cw['correct']/ao_s2_cw['total']*100:.1f}%)")
+        print(f"  AO matches CODI's wrong answer: {ao_codi_wrong['matches']}/{ao_codi_wrong['total']} ({ao_codi_wrong['matches']/ao_codi_wrong['total']*100:.1f}%)")
+    else:
+        print("  (No cases where CODI was wrong)")
+    
+    ao_matches = codi_analysis["ao_matches_codi_output"]
+    if ao_matches["total"] > 0:
+        print(f"\nAO matches CODI output (overall): {ao_matches['matches']}/{ao_matches['total']} ({ao_matches['matches']/ao_matches['total']*100:.1f}%)")
     
     # Save results
     output_path = Path(args.output)
