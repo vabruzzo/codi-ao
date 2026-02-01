@@ -45,6 +45,9 @@ QUESTION_TEMPLATES = {
     ],
 }
 
+# Placeholder token for latent injection (must match what train.py expects)
+PLACEHOLDER_TOKEN = "?"
+
 OPERATION_NAMES = {
     "add": "addition",
     "sub": "subtraction",
@@ -55,6 +58,19 @@ OPERATION_NAMES = {
 def load_codi():
     """Load CODI model."""
     return CODIWrapper.from_pretrained()
+
+
+def format_prompt(question: str, num_latents: int) -> str:
+    """Format prompt with placeholder tokens for latent injection.
+    
+    Format: "Latent: ? <question>" for single latent
+    Format: "Latents: ? ? ? ? ? ? <question>" for multiple latents
+    """
+    placeholders = " ".join([PLACEHOLDER_TOKEN] * num_latents)
+    if num_latents == 1:
+        return f"Latent: {placeholders} {question}"
+    else:
+        return f"Latents: {placeholders} {question}"
 
 
 def create_training_examples(problem, latents, codi_output, codi_correct):
@@ -69,65 +85,54 @@ def create_training_examples(problem, latents, codi_output, codi_correct):
     # We have 6 latents: z1-z6 (indices 0-5)
     # Based on prior analysis: z2 (idx 1) has step1, z4 (idx 3) has step2
     
-    z2 = latents[1]  # Step 1 latent
-    z4 = latents[3]  # Step 2 latent
-    all_latents = latents[:6]
-    
     import random
     
     # === Step 1 extraction ===
     # Single latent (z2)
     q = random.choice(QUESTION_TEMPLATES["step1"])
     examples.append({
-        "question": q,
+        "prompt": format_prompt(q, 1),
         "answer": str(step1),
         "latent_indices": [1],
         "task": "step1_single",
-        "ground_truth_step1": step1,
     })
     
     # Multi-latent (all 6)
     q = random.choice(QUESTION_TEMPLATES["step1"])
     examples.append({
-        "question": q,
+        "prompt": format_prompt(q, 6),
         "answer": str(step1),
         "latent_indices": [0, 1, 2, 3, 4, 5],
         "task": "step1_multi",
-        "ground_truth_step1": step1,
     })
     
     # === Step 2 extraction ===
     # Single latent (z4)
     q = random.choice(QUESTION_TEMPLATES["step2"])
     examples.append({
-        "question": q,
+        "prompt": format_prompt(q, 1),
         "answer": str(step2),
         "latent_indices": [3],
         "task": "step2_single",
-        "ground_truth_step2": step2,
     })
     
     # Multi-latent
     q = random.choice(QUESTION_TEMPLATES["step2"])
     examples.append({
-        "question": q,
+        "prompt": format_prompt(q, 6),
         "answer": str(step2),
         "latent_indices": [0, 1, 2, 3, 4, 5],
         "task": "step2_multi",
-        "ground_truth_step2": step2,
     })
     
     # === Step 3 / Final answer extraction ===
     # Multi-latent only (single latent doesn't work well for final answer)
     q = random.choice(QUESTION_TEMPLATES["step3"])
     examples.append({
-        "question": q,
+        "prompt": format_prompt(q, 6),
         "answer": str(step3),
         "latent_indices": [0, 1, 2, 3, 4, 5],
         "task": "step3_multi",
-        "ground_truth_step3": step3,
-        "codi_output": codi_output,
-        "codi_correct": codi_correct,
     })
     
     # === Operation detection ===
@@ -136,28 +141,26 @@ def create_training_examples(problem, latents, codi_output, codi_correct):
     # Single latent (z2)
     q = random.choice(QUESTION_TEMPLATES["operation"])
     examples.append({
-        "question": q,
+        "prompt": format_prompt(q, 1),
         "answer": op_name,
         "latent_indices": [1],
         "task": "operation_single",
-        "ground_truth_operation": operation,
     })
     
     # Multi-latent
     q = random.choice(QUESTION_TEMPLATES["operation"])
     examples.append({
-        "question": q,
+        "prompt": format_prompt(q, 6),
         "answer": op_name,
         "latent_indices": [0, 1, 2, 3, 4, 5],
         "task": "operation_multi",
-        "ground_truth_operation": operation,
     })
     
     # === Comparison ===
     comparison_answer = "step 2" if step2 > step1 else "step 1"
     q = random.choice(QUESTION_TEMPLATES["comparison"])
     examples.append({
-        "question": q,
+        "prompt": format_prompt(q, 6),
         "answer": comparison_answer,
         "latent_indices": [0, 1, 2, 3, 4, 5],
         "task": "comparison",
