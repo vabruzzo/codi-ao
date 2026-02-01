@@ -131,13 +131,13 @@ def categorize_rarity(value, freq_dict, rare_threshold=10, common_threshold=30):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--problems", type=str, default="data/problems_holdout.json")
-    parser.add_argument("--output", type=str, default="results/logit_lens_holdout_eval.json")
+    parser.add_argument("--problems", type=str, default="data/problems.json")
+    parser.add_argument("--output", type=str, default="results/logit_lens_eval.json")
     parser.add_argument("--top_k", type=int, default=10)
     args = parser.parse_args()
     
     print("=" * 70)
-    print("Logit Lens Evaluation on Holdout Data")
+    print("Logit Lens Evaluation")
     print("=" * 70)
     
     # Load data

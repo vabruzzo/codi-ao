@@ -173,9 +173,9 @@ def create_training_examples(problem, latents, codi_output, codi_correct):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=str, default="data/problems_holdout.json",
-                        help="Path to holdout problems JSON")
-    parser.add_argument("--output", type=str, default="data/ao_training_holdout.jsonl",
+    parser.add_argument("--input", type=str, default="data/problems.json",
+                        help="Path to problems JSON")
+    parser.add_argument("--output", type=str, default="data/ao_training.jsonl",
                         help="Output JSONL file for AO training")
     parser.add_argument("--max_problems", type=int, default=None,
                         help="Max training problems to process")

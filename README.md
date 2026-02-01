@@ -24,7 +24,7 @@ pip install -e .
 
 ## Complete Experiment Pipeline
 
-### Step 1: Generate Problems with Holdout Controls
+### Step 1: Generate Problems with Holdout Controls (local, no GPU needed)
 
 This creates train/test data with rigorous controls to detect memorization:
 - **Value holdout**: Random step values never seen in training
@@ -32,77 +32,91 @@ This creates train/test data with rigorous controls to detect memorization:
 - **Operand swap**: Same (X,Y) operands but different operations
 
 ```bash
-python scripts/generate_data_holdout.py \
+python scripts/generate_data.py \
     --n_train 1000 \
     --n_test 200 \
     --value_holdout_ratio 0.15 \
     --tuple_holdout_ratio 0.10 \
+    --operand_swap_ratio 0.15 \
     --seed 42 \
-    --output data/problems_holdout.json
+    --output data/problems.json
 ```
 
-### Step 2: Generate AO Training Data (requires GPU with CODI)
+### Step 2: Generate AO Training Data (GPU required)
 
 Runs CODI on training problems to collect latent vectors:
 
 ```bash
-uv run python scripts/generate_ao_training_holdout.py \
-    --input data/problems_holdout.json \
-    --output data/ao_training_holdout.jsonl
+uv run python scripts/generate_ao_training.py \
+    --input data/problems.json \
+    --output data/ao_training.jsonl
 ```
 
-### Step 3: Train Activation Oracle
+### Step 3: Train Activation Oracle (GPU required)
 
 Fine-tunes a LLaMA model with LoRA to decode latent vectors:
 
 ```bash
 uv run python scripts/train.py \
-    --data data/ao_training_holdout.jsonl \
-    --output_dir checkpoints/ao_holdout \
+    --data data/ao_training.jsonl \
+    --output_dir checkpoints/ao \
     --epochs 2 \
     --batch_size 4
 ```
 
-### Step 4: Comprehensive AO Evaluation
+### Step 4: Comprehensive AO Evaluation (GPU required)
 
 Tests extraction accuracy with detailed breakdowns:
 
 ```bash
-uv run python scripts/eval_ao_holdout.py \
-    --checkpoint checkpoints/ao_holdout \
-    --problems data/problems_holdout.json \
-    --output results/ao_holdout_eval.json
+uv run python scripts/eval_ao.py \
+    --checkpoint checkpoints/ao \
+    --problems data/problems.json \
+    --output results/ao_eval.json
 ```
 
 **Outputs:**
 - Overall accuracy for step1, step2, step3, operation detection
 - Single vs multi-latent comparison
-- Holdout analysis (seen vs novel values/tuples)
+- Holdout analysis (seen vs novel values/tuples/operand swap)
 - CODI correctness correlation
+- Rarity analysis
 - Per-operation breakdown
 
-### Step 5: Logit Lens Baseline
+### Step 5: Logit Lens Baseline (GPU required)
 
 Compares AO to simple linear projection (Logit Lens):
 
 ```bash
-uv run python scripts/eval_logit_lens_holdout.py \
-    --problems data/problems_holdout.json \
-    --output results/logit_lens_holdout_eval.json
+uv run python scripts/eval_logit_lens.py \
+    --problems data/problems.json \
+    --output results/logit_lens_eval.json
 ```
 
-### Step 6: Operation Memorization Test
+### Step 6: Operation Memorization Test (GPU required)
 
 Critical test: Can AO distinguish operations when step1 value is identical?
 
 ```bash
 uv run python scripts/test_operation_not_memorized.py \
-    --checkpoint checkpoints/ao_holdout \
+    --checkpoint checkpoints/ao \
     --n_test 100 \
     --output results/operation_memorization_test.json
 ```
 
 **Example:** If training saw `5 + 7 = 12` (addition), can AO correctly identify `3 × 4 = 12` (multiplication) as multiplication? This proves the AO reads operation info, not just memorizing value→operation mappings.
+
+### Optional: Sanity Check - Shuffle Latents
+
+Scrambles latent-to-problem mapping. Should drop accuracy to near-chance, proving AO actually uses latent content:
+
+```bash
+uv run python scripts/eval_ao.py \
+    --checkpoint checkpoints/ao \
+    --problems data/problems.json \
+    --output results/ao_eval_shuffled.json \
+    --shuffle
+```
 
 ## Problem Structure
 
@@ -152,11 +166,11 @@ Based on prior experiments:
 ```
 codi-ao/
 ├── scripts/
-│   ├── generate_data_holdout.py      # Generate problems with controls
-│   ├── generate_ao_training_holdout.py  # Create AO training data
+│   ├── generate_data.py              # Generate problems with controls
+│   ├── generate_ao_training.py       # Create AO training data
 │   ├── train.py                      # Train Activation Oracle
-│   ├── eval_ao_holdout.py            # Comprehensive AO evaluation
-│   ├── eval_logit_lens_holdout.py    # Logit Lens baseline
+│   ├── eval_ao.py                    # Comprehensive AO evaluation
+│   ├── eval_logit_lens.py            # Logit Lens baseline
 │   └── test_operation_not_memorized.py  # Operation memorization test
 ├── src/
 │   ├── activation_oracle.py          # AO model implementation

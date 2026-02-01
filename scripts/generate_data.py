@@ -109,7 +109,7 @@ def main():
     parser.add_argument("--operand_swap_ratio", type=float, default=0.15,
                         help="Fraction of test using same (X,Y) as train but different operation")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", type=str, default="data/problems_holdout.json")
+    parser.add_argument("--output", type=str, default="data/problems.json")
     args = parser.parse_args()
     
     random.seed(args.seed)

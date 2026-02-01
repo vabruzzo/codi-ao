@@ -101,13 +101,13 @@ def categorize_rarity(value, freq_dict, rare_threshold=10, common_threshold=30):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str, required=True)
-    parser.add_argument("--problems", type=str, default="data/problems_holdout.json")
-    parser.add_argument("--output", type=str, default="results/ao_holdout_eval.json")
+    parser.add_argument("--problems", type=str, default="data/problems.json")
+    parser.add_argument("--output", type=str, default="results/ao_eval.json")
     parser.add_argument("--shuffle", action="store_true", help="Shuffle latents (sanity check)")
     args = parser.parse_args()
     
     print("=" * 70)
-    print("Comprehensive AO Evaluation with Holdout Analysis")
+    print("Comprehensive Activation Oracle Evaluation")
     print("=" * 70)
     
     if args.shuffle:
