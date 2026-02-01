@@ -16,6 +16,7 @@ import argparse
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import torch
@@ -23,6 +24,25 @@ import yaml
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def compute_training_frequencies(all_problems, n_train=1000):
+    """Compute value frequencies in training set."""
+    train = all_problems[:n_train]
+    return {
+        "step1": Counter(p["step1"] for p in train),
+        "step3": Counter(p["step3"] for p in train),
+    }
+
+
+def categorize_rarity(value, counts, rare_threshold, common_threshold):
+    """Categorize a value as rare, common, or medium based on training frequency."""
+    count = counts.get(value, 0)
+    if count <= rare_threshold:
+        return "rare"
+    elif count >= common_threshold:
+        return "common"
+    return "medium"
 
 
 def load_codi_model(config_path="configs/default.yaml"):
@@ -211,6 +231,23 @@ def main():
             "codi_wrong_examples": [],
         },
         
+        # Rarity analysis: does AO perform differently on values seen rarely in training?
+        "rarity_analysis": {
+            # Step 1 extraction by rarity (rare = ≤15 occurrences, common = ≥50)
+            "step1_rare": {"correct": 0, "total": 0},
+            "step1_common": {"correct": 0, "total": 0},
+            "step1_medium": {"correct": 0, "total": 0},
+            # Step 3 extraction by rarity (rare = ≤10 occurrences, common = ≥20)
+            "step3_rare": {"correct": 0, "total": 0},
+            "step3_common": {"correct": 0, "total": 0},
+            "step3_medium": {"correct": 0, "total": 0},
+            # Thresholds used
+            "thresholds": {
+                "step1_rare": 15, "step1_common": 50,
+                "step3_rare": 10, "step3_common": 20,
+            },
+        },
+        
         # Config
         "config": {
             "checkpoint": args.checkpoint,
@@ -218,6 +255,13 @@ def main():
             "shuffle": args.shuffle,
         }
     }
+    
+    # Compute training value frequencies for rarity analysis
+    n_train = len(all_problems) - args.n_test
+    train_freqs = compute_training_frequencies(all_problems, n_train)
+    print(f"\nTraining set: {n_train} problems")
+    print(f"Unique step1 values in train: {len(train_freqs['step1'])}")
+    print(f"Unique step3 values in train: {len(train_freqs['step3'])}")
     
     # Collect all latents first (for shuffle mode)
     # Also capture CODI's actual predictions for correctness analysis
@@ -334,6 +378,16 @@ def main():
                 "true": step1, "response": resp_multi, "parsed": pred_multi, "correct": step1_multi_correct
             })
         
+        # Rarity tracking for step1 (using single z2 result)
+        step1_rarity = categorize_rarity(
+            step1, train_freqs["step1"], 
+            results["rarity_analysis"]["thresholds"]["step1_rare"],
+            results["rarity_analysis"]["thresholds"]["step1_common"]
+        )
+        results["rarity_analysis"][f"step1_{step1_rarity}"]["total"] += 1
+        if correct:  # correct refers to single z2 result
+            results["rarity_analysis"][f"step1_{step1_rarity}"]["correct"] += 1
+        
         # =====================================================================
         # STEP 2 EXTRACTION
         # =====================================================================
@@ -423,6 +477,16 @@ def main():
                 "ao_correct_vs_truth": correct,
                 "ao_matches_codi": (pred == codi_pred_num_for_example) if codi_pred_num_for_example is not None else None
             })
+        
+        # Rarity tracking for step3 (using multi-latent result)
+        step3_rarity = categorize_rarity(
+            step3, train_freqs["step3"],
+            results["rarity_analysis"]["thresholds"]["step3_rare"],
+            results["rarity_analysis"]["thresholds"]["step3_common"]
+        )
+        results["rarity_analysis"][f"step3_{step3_rarity}"]["total"] += 1
+        if correct:  # correct refers to multi-latent result
+            results["rarity_analysis"][f"step3_{step3_rarity}"]["correct"] += 1
         
         # =====================================================================
         # CODI CORRECTNESS ANALYSIS (for step3 multi)
@@ -699,6 +763,27 @@ def main():
     ao_matches = codi_analysis["ao_matches_codi_output"]
     if ao_matches["total"] > 0:
         print(f"\nAO matches CODI output (overall): {ao_matches['matches']}/{ao_matches['total']} ({ao_matches['matches']/ao_matches['total']*100:.1f}%)")
+    
+    # Rarity analysis
+    rarity = results["rarity_analysis"]
+    print("\n--- Rarity Analysis (Memorization Test) ---")
+    print("Does AO perform differently on values seen rarely vs commonly in training?")
+    print()
+    
+    def rarity_pct(d):
+        if d["total"] == 0:
+            return "N/A (n=0)"
+        return f'{100 * d["correct"] / d["total"]:.1f}% (n={d["total"]})'
+    
+    print(f"Step 1 extraction (z2 only):")
+    print(f"  Rare (≤{rarity['thresholds']['step1_rare']} train occurrences):   {rarity_pct(rarity['step1_rare'])}")
+    print(f"  Medium:                                {rarity_pct(rarity['step1_medium'])}")
+    print(f"  Common (≥{rarity['thresholds']['step1_common']} train occurrences):  {rarity_pct(rarity['step1_common'])}")
+    print()
+    print(f"Step 3 extraction (all 6 latents):")
+    print(f"  Rare (≤{rarity['thresholds']['step3_rare']} train occurrences):   {rarity_pct(rarity['step3_rare'])}")
+    print(f"  Medium:                                {rarity_pct(rarity['step3_medium'])}")
+    print(f"  Common (≥{rarity['thresholds']['step3_common']} train occurrences):  {rarity_pct(rarity['step3_common'])}")
     
     # Save results
     output_path = Path(args.output)
