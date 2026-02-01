@@ -12,7 +12,7 @@ This allows direct measurement of memorization vs generalization.
 import argparse
 import json
 import random
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 
@@ -106,6 +106,8 @@ def main():
                         help="Fraction of unique step values to hold out")
     parser.add_argument("--tuple_holdout_ratio", type=float, default=0.10,
                         help="Fraction of (X,Y,Z,op) tuples to hold out entirely")
+    parser.add_argument("--operand_swap_ratio", type=float, default=0.15,
+                        help="Fraction of test using same (X,Y) as train but different operation")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=str, default="data/problems_holdout.json")
     args = parser.parse_args()
@@ -223,17 +225,45 @@ def main():
     print(f"Unique step1 in train: {len(train_value_counts['step1'])}")
     print(f"Unique step3 in train: {len(train_value_counts['step3'])}")
     
+    # === TRACK (X, Y) -> operations used in training ===
+    # For the "same operands, different operation" test
+    train_xy_to_ops = defaultdict(set)
+    for p in train_problems:
+        train_xy_to_ops[(p["X"], p["Y"])].add(p["operation"])
+    
+    # Find (X, Y) pairs that could have a DIFFERENT operation in test
+    # (i.e., train used add, test could use sub or mul)
+    swappable_xy = []
+    for (X, Y), ops_used in train_xy_to_ops.items():
+        possible_ops = set()
+        if X + Y <= 20:  # reasonable add result
+            possible_ops.add("add")
+        if X > Y:  # valid subtraction
+            possible_ops.add("sub")
+        if X <= 6 and Y <= 6:  # reasonable multiplication
+            possible_ops.add("mul")
+        
+        # Operations NOT used in training for this (X, Y)
+        unused_ops = possible_ops - ops_used
+        if unused_ops:
+            swappable_xy.append((X, Y, list(unused_ops), list(ops_used)))
+    
+    print(f"\n=== Operand Swap Candidates ===")
+    print(f"(X,Y) pairs with unused operations: {len(swappable_xy)}")
+    
     # === GENERATE TEST PROBLEMS ===
     # Categories:
     # 1. novel_tuple: From held-out (X,Y,Z,op) tuples
     # 2. novel_value: Has at least one held-out step value
     # 3. seen: All values seen in training
+    # 4. operand_swap: Same (X,Y) as training, but DIFFERENT operation
     
     test_novel_tuple = []
     test_novel_value = []
     test_seen = []
+    test_operand_swap = []
     
-    target_per_category = args.n_test // 3
+    target_per_category = args.n_test // 4  # Now 4 categories
     
     # Generate from held-out tuples
     holdout_tuple_list = list(holdout_tuples)
@@ -255,6 +285,7 @@ def main():
         problem["novel_step2"] = s2 in holdout_step2
         problem["novel_step3"] = s3 in holdout_step3
         problem["novel_any_value"] = problem["novel_step1"] or problem["novel_step2"] or problem["novel_step3"]
+        problem["operand_swap"] = False
         
         test_novel_tuple.append(problem)
     
@@ -279,6 +310,7 @@ def main():
         problem["novel_step2"] = s2 in holdout_step2
         problem["novel_step3"] = s3 in holdout_step3
         problem["novel_any_value"] = True
+        problem["operand_swap"] = False
         
         test_novel_value.append(problem)
     
@@ -303,11 +335,40 @@ def main():
         problem["novel_step2"] = False
         problem["novel_step3"] = False
         problem["novel_any_value"] = False
+        problem["operand_swap"] = False
         
         test_seen.append(problem)
     
+    # Generate OPERAND SWAP problems: same (X,Y) as training, DIFFERENT operation
+    # This tests if AO reads operation info vs memorizing (X,Y) -> output
+    random.shuffle(swappable_xy)
+    
+    for X, Y, unused_ops, train_ops_used in swappable_xy:
+        if len(test_operand_swap) >= target_per_category:
+            break
+        
+        # Pick an unused operation
+        new_op = random.choice(unused_ops)
+        Z = random.randint(2, 6)
+        
+        s1, s2, s3 = compute_steps(X, Y, Z, new_op)
+        
+        template_idx = random.randint(0, 4)
+        problem = generate_problem(X, Y, Z, new_op, template_idx)
+        
+        problem["holdout_type"] = "operand_swap"
+        problem["novel_tuple"] = False  # (X,Y) seen, but different op
+        problem["novel_step1"] = s1 in holdout_step1
+        problem["novel_step2"] = s2 in holdout_step2
+        problem["novel_step3"] = s3 in holdout_step3
+        problem["novel_any_value"] = problem["novel_step1"] or problem["novel_step2"] or problem["novel_step3"]
+        problem["operand_swap"] = True
+        problem["train_ops_for_xy"] = train_ops_used  # What operations train used for this (X,Y)
+        
+        test_operand_swap.append(problem)
+    
     # Combine and shuffle
-    test_problems = test_novel_tuple + test_novel_value + test_seen
+    test_problems = test_novel_tuple + test_novel_value + test_seen + test_operand_swap
     random.shuffle(test_problems)
     
     print(f"\n=== Test Set ===")
@@ -315,6 +376,7 @@ def main():
     print(f"  Novel tuple (held-out X,Y,Z,op): {len(test_novel_tuple)}")
     print(f"  Novel value (held-out step values): {len(test_novel_value)}")
     print(f"  Seen (all values in training): {len(test_seen)}")
+    print(f"  Operand swap (same X,Y, different op): {len(test_operand_swap)}")
     
     # Detailed breakdown
     n_novel_s1 = sum(1 for p in test_problems if p.get("novel_step1"))

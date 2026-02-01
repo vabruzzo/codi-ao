@@ -157,6 +157,7 @@ def main():
                 "tuple": {"step1": {"c": 0, "t": 0}, "step3": {"c": 0, "t": 0}, "op": {"c": 0, "t": 0}},
                 "value": {"step1": {"c": 0, "t": 0}, "step3": {"c": 0, "t": 0}, "op": {"c": 0, "t": 0}},
                 "seen": {"step1": {"c": 0, "t": 0}, "step3": {"c": 0, "t": 0}, "op": {"c": 0, "t": 0}},
+                "operand_swap": {"step1": {"c": 0, "t": 0}, "step3": {"c": 0, "t": 0}, "op": {"c": 0, "t": 0}},
             },
             # By specific value novelty
             "novel_step1": {"correct": 0, "total": 0},
@@ -199,6 +200,7 @@ def main():
             "novel_wrong": [],
             "codi_wrong_ao_correct": [],
             "codi_wrong_ao_wrong": [],
+            "operand_swap_examples": [],  # Same (X,Y), different op
         },
     }
     
@@ -439,6 +441,22 @@ def main():
         if correct_op_single:
             results["by_operation"][op]["op_detect"]["c"] += 1
         
+        # Store operand_swap examples (key test for operation reading vs memorization)
+        if holdout_type == "operand_swap" and len(results["examples"]["operand_swap_examples"]) < 10:
+            train_ops = problem.get("train_ops_for_xy", [])
+            results["examples"]["operand_swap_examples"].append({
+                "X": problem["X"], "Y": problem["Y"], "Z": problem.get("Z"),
+                "test_op": op,
+                "train_ops_for_xy": train_ops,
+                "step1": step1,
+                "ao_op_response": resp_op_single,
+                "ao_op_pred": pred_op_single,
+                "op_correct": correct_op_single,
+                "ao_step1_response": resp_s1_single,
+                "ao_step1_pred": pred_s1_single,
+                "step1_correct": correct_s1_single,
+            })
+        
         # === COMPARISON ===
         resp_cmp = ao_generate(ao, latents, compare_q)
         expected_cmp = "step 2" if step2 > step1 else "step 1"
@@ -489,9 +507,10 @@ def main():
     print(f"Comparison:        {pct(results['overall']['comparison'])}")
     
     print("\n--- Holdout Analysis (Memorization Test) ---")
-    for htype in ["seen", "value", "tuple"]:
+    for htype in ["seen", "value", "tuple", "operand_swap"]:
         h = results["holdout"]["by_type"][htype]
-        print(f"{htype.upper():6s}: step1={pct2(h['step1'])} step3={pct2(h['step3'])} op={pct2(h['op'])}")
+        label = "OP_SWAP" if htype == "operand_swap" else htype.upper()
+        print(f"{label:8s}: step1={pct2(h['step1'])} step3={pct2(h['step3'])} op={pct2(h['op'])}")
     
     print("\n  By specific value novelty:")
     print(f"    Novel step1: {pct(results['holdout']['novel_step1'])} (n={results['holdout']['novel_step1']['total']})")
