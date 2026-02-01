@@ -45,8 +45,8 @@ QUESTION_TEMPLATES = {
     ],
 }
 
-# Placeholder token for latent injection (must match what train.py expects)
-PLACEHOLDER_TOKEN = "?"
+# Placeholder token for latent injection - MUST match AO config (space + question mark)
+PLACEHOLDER_TOKEN = " ?"
 
 OPERATION_NAMES = {
     "add": "addition",
@@ -60,17 +60,19 @@ def load_codi():
     return CODIWrapper.from_pretrained()
 
 
-def format_prompt(question: str, num_latents: int) -> str:
+def format_prompt(question: str, num_latents: int, layer_percent: int = 50) -> str:
     """Format prompt with placeholder tokens for latent injection.
     
-    Format: "Latent: ? <question>" for single latent
-    Format: "Latents: ? ? ? ? ? ? <question>" for multiple latents
+    MUST match the format used by AO inference (get_introspection_prefix):
+        Layer {layer_percent}%:{placeholder}{placeholder}... {question}
+    
+    The placeholder token is " ?" (space + question mark) to ensure stable tokenization.
     """
-    placeholders = " ".join([PLACEHOLDER_TOKEN] * num_latents)
-    if num_latents == 1:
-        return f"Latent: {placeholders} {question}"
-    else:
-        return f"Latents: {placeholders} {question}"
+    # Build prefix matching get_introspection_prefix in activation_oracle.py
+    prefix = f"Layer {layer_percent}%:"
+    prefix += PLACEHOLDER_TOKEN * num_latents
+    prefix += " "  # Space before question
+    return prefix + question
 
 
 def create_training_examples(problem, latents, codi_output, codi_correct):

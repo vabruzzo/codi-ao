@@ -30,7 +30,10 @@ def load_codi():
 
 
 def extract_number(text):
-    """Extract first number from text."""
+    """Extract the most likely answer number from text.
+    
+    For Logit Lens, we typically get single tokens, so first number is fine.
+    """
     if text is None:
         return None
     numbers = re.findall(r'-?\d+', str(text))
@@ -40,37 +43,55 @@ def extract_number(text):
 def analyze_logit_lens_for_number(codi, latent, target_number, top_k=10):
     """
     Use Logit Lens to check if target number is in top-k tokens.
+    Uses the FINAL layer results from LogitLensResult.
     Returns rank and probability if found, else None.
     """
-    result = codi.logit_lens(latent)
+    result = codi.logit_lens(latent, top_k=top_k)
+    
+    # LogitLensResult has layer_results, use final layer
+    if not result.layer_results:
+        return {"found": False, "rank": None, "probability": 0.0, 
+                "top_token": None, "top_prob": 0.0}
+    
+    final_layer = result.layer_results[-1]
+    top_tokens = final_layer["top_tokens"]
+    top_probs = final_layer["top_probs"]
     
     target_str = str(target_number)
     
-    for rank, (token, prob) in enumerate(zip(result.top_tokens, result.top_probs)):
+    for rank, (token, prob) in enumerate(zip(top_tokens, top_probs)):
         token_clean = token.strip()
         if token_clean == target_str or token_clean == f" {target_str}":
             return {
                 "found": True,
                 "rank": rank + 1,
                 "probability": prob,
-                "top_token": result.top_tokens[0].strip(),
-                "top_prob": result.top_probs[0],
+                "top_token": top_tokens[0].strip() if top_tokens else None,
+                "top_prob": top_probs[0] if top_probs else 0.0,
             }
     
     return {
         "found": False,
         "rank": None,
         "probability": 0.0,
-        "top_token": result.top_tokens[0].strip() if result.top_tokens else None,
-        "top_prob": result.top_probs[0] if result.top_probs else 0.0,
+        "top_token": top_tokens[0].strip() if top_tokens else None,
+        "top_prob": top_probs[0] if top_probs else 0.0,
     }
 
 
 def analyze_logit_lens_for_operation(codi, latent, target_op, top_k=20):
     """
-    Check if operation-related tokens appear in top-k.
+    Check if operation-related tokens appear in top-k at final layer.
     """
     result = codi.logit_lens(latent, top_k=top_k)
+    
+    # LogitLensResult has layer_results, use final layer
+    if not result.layer_results:
+        return {"found": False, "rank": None, "probability": 0.0, "matched_token": None}
+    
+    final_layer = result.layer_results[-1]
+    top_tokens = final_layer["top_tokens"]
+    top_probs = final_layer["top_probs"]
     
     op_tokens = {
         "add": ["+", "add", "plus", "sum", "added", "adding"],
@@ -80,7 +101,7 @@ def analyze_logit_lens_for_operation(codi, latent, target_op, top_k=20):
     
     target_tokens = op_tokens.get(target_op, [])
     
-    for rank, (token, prob) in enumerate(zip(result.top_tokens, result.top_probs)):
+    for rank, (token, prob) in enumerate(zip(top_tokens, top_probs)):
         token_clean = token.strip().lower()
         if token_clean in target_tokens:
             return {
@@ -163,6 +184,7 @@ def main():
                 "tuple": {"step1": {"c": 0, "t": 0}, "step3": {"c": 0, "t": 0}},
                 "value": {"step1": {"c": 0, "t": 0}, "step3": {"c": 0, "t": 0}},
                 "seen": {"step1": {"c": 0, "t": 0}, "step3": {"c": 0, "t": 0}},
+                "operand_swap": {"step1": {"c": 0, "t": 0}, "step3": {"c": 0, "t": 0}},
             },
             "novel_step1": {"correct": 0, "total": 0},
             "seen_step1": {"correct": 0, "total": 0},
@@ -373,9 +395,10 @@ def main():
     print(f"Step 3 (z6): {pct_found(results['top_k_match']['step3_z6'])}")
     
     print("\n--- Holdout Analysis ---")
-    for htype in ["seen", "value", "tuple"]:
+    for htype in ["seen", "value", "tuple", "operand_swap"]:
         h = results["holdout"]["by_type"][htype]
-        print(f"{htype.upper():6s}: step1={pct2(h['step1'])} step3={pct2(h['step3'])}")
+        label = "OP_SWAP" if htype == "operand_swap" else htype.upper()
+        print(f"{label:8s}: step1={pct2(h['step1'])} step3={pct2(h['step3'])}")
     
     print("\n  By specific value novelty:")
     print(f"    Novel step1: {pct(results['holdout']['novel_step1'])} (n={results['holdout']['novel_step1']['total']})")

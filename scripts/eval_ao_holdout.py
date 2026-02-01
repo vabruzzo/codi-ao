@@ -42,11 +42,20 @@ def load_ao(checkpoint_path):
 
 
 def extract_number(text):
-    """Extract first number from text."""
+    """Extract the most likely answer number from text.
+    
+    Strategy: Prefer the LAST number in the response, as models typically
+    give explanations followed by the final answer. Falls back to first number
+    if only one exists.
+    """
     if text is None:
         return None
     numbers = re.findall(r'-?\d+', str(text))
-    return int(numbers[0]) if numbers else None
+    if not numbers:
+        return None
+    # Prefer last number (usually the answer after explanation)
+    # But if there's only one number, use it
+    return int(numbers[-1])
 
 
 def extract_operation(text):
