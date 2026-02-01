@@ -166,6 +166,7 @@ def main():
         "extraction_step2_single": {"correct": 0, "total": 0, "examples": []},
         "extraction_step3_z5_single": {"correct": 0, "total": 0, "examples": []},
         "extraction_step3_z6_single": {"correct": 0, "total": 0, "examples": []},
+        "extraction_step3_z2z4": {"correct": 0, "total": 0},  # z2+z4 only (test if AO computes)
         
         # Multi-latent extraction
         "extraction_step1_multi": {"correct": 0, "total": 0, "examples": []},
@@ -392,6 +393,14 @@ def main():
                 "problem": problem_ctx, "question": step3_q, "latent_positions": [5],
                 "true": step3, "response": resp, "parsed": pred, "correct": correct
             })
+        
+        # z2+z4 only (step1 and step2 latents only) - test if AO computes step3
+        resp_z2z4 = ao_generate(ao, [z2, z4], step3_q)
+        pred_z2z4 = extract_number(resp_z2z4)
+        correct_z2z4 = (pred_z2z4 == step3)
+        results["extraction_step3_z2z4"]["total"] += 1
+        if correct_z2z4:
+            results["extraction_step3_z2z4"]["correct"] += 1
         
         # Multi (all 6)
         resp = ao_generate(ao, latents, step3_q)
@@ -638,6 +647,7 @@ def main():
     print()
     print(f"Step 3 (z5 only):  {pct(results['extraction_step3_z5_single'])} ({results['extraction_step3_z5_single']['correct']}/{results['extraction_step3_z5_single']['total']})")
     print(f"Step 3 (z6 only):  {pct(results['extraction_step3_z6_single'])} ({results['extraction_step3_z6_single']['correct']}/{results['extraction_step3_z6_single']['total']})")
+    print(f"Step 3 (z2+z4):    {pct(results['extraction_step3_z2z4'])} ({results['extraction_step3_z2z4']['correct']}/{results['extraction_step3_z2z4']['total']})  <-- step1+step2 latents only")
     print(f"Step 3 (all 6):    {pct(results['extraction_step3_multi'])} ({results['extraction_step3_multi']['correct']}/{results['extraction_step3_multi']['total']})")
     
     print("\n--- Operation Detection ---")
