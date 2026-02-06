@@ -33,9 +33,12 @@ def load_codi():
     return CODIWrapper.from_pretrained()
 
 
-def load_ao(checkpoint_path):
+def load_ao(checkpoint_path, injection_layer=1):
     """Load trained Activation Oracle."""
-    config = AOConfig(model_name="meta-llama/Llama-3.2-1B-Instruct")
+    config = AOConfig(
+        model_name="meta-llama/Llama-3.2-1B-Instruct",
+        injection_layer=injection_layer,
+    )
     ao = ActivationOracle.from_pretrained(config=config, lora_path=checkpoint_path)
     ao.eval_mode()
     return ao
@@ -104,6 +107,7 @@ def main():
     parser.add_argument("--problems", type=str, default="data/problems.json")
     parser.add_argument("--output", type=str, default="results/ao_eval.json")
     parser.add_argument("--shuffle", action="store_true", help="Shuffle latents (sanity check)")
+    parser.add_argument("--injection_layer", type=int, default=1, help="Layer to inject activations (must match training)")
     args = parser.parse_args()
     
     print("=" * 70)
@@ -134,7 +138,8 @@ def main():
     codi = load_codi()
     
     print(f"Loading AO from {args.checkpoint}...")
-    ao = load_ao(args.checkpoint)
+    print(f"Injection layer: {args.injection_layer}")
+    ao = load_ao(args.checkpoint, injection_layer=args.injection_layer)
     
     # Initialize comprehensive results
     results = {

@@ -61,7 +61,7 @@ uv run python scripts/train.py \
     --data data/ao_training.jsonl \
     --output_dir checkpoints/ao \
     --epochs 2 \
-    --batch_size 4
+    --batch_size 16
 ```
 
 ### Step 4: Comprehensive AO Evaluation (GPU required)

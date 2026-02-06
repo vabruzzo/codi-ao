@@ -249,6 +249,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--gradient_accumulation", type=int, default=1, help="Gradient accumulation steps")
+    parser.add_argument("--injection_layer", type=int, default=1, help="Layer to inject activations (1=early, 8=mid, 15=late)")
     args = parser.parse_args()
     
     print("=" * 60)
@@ -271,7 +272,9 @@ def main():
         device=args.device,
         lora_r=64,
         lora_alpha=128,
+        injection_layer=args.injection_layer,
     )
+    print(f"Injection layer: {args.injection_layer}")
     
     # Determine data path
     if args.data_path:
