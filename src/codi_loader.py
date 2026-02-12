@@ -3,8 +3,6 @@
 Adapts the loading pattern from codi/test.py.
 """
 
-import sys
-import os
 from pathlib import Path
 
 import torch
@@ -12,20 +10,8 @@ import transformers
 from peft import LoraConfig, TaskType
 from safetensors.torch import load_file
 
-# Import CODI's src/model.py directly by file path to avoid
-# conflicting with our own src/ package.
-import importlib.util
-
-CODI_REPO = Path(__file__).parent.parent / "codi"
-_codi_model_path = CODI_REPO / "src" / "model.py"
-
-_spec = importlib.util.spec_from_file_location("codi_model", str(_codi_model_path))
-_codi_module = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_codi_module)
-
-CODI_cls = _codi_module.CODI
-ModelArguments = _codi_module.ModelArguments
-TrainingArguments = _codi_module.TrainingArguments
+# Vendored from codi/src/model.py
+from src.codi_model import CODI as CODI_cls, ModelArguments, TrainingArguments
 
 
 def _get_lora_config(model_name: str, lora_r: int, lora_alpha: int, lora_dropout: float) -> LoraConfig:
