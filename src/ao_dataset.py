@@ -56,35 +56,58 @@ def get_introspection_prefix(layer: int, num_positions: int) -> str:
     return prefix
 
 
+def _ensure_int_list(token_ids) -> list[int]:
+    """Ensure token IDs are a flat list of Python ints."""
+    if hasattr(token_ids, 'ids'):
+        # tokenizers.Encoding object
+        return list(token_ids.ids)
+    if isinstance(token_ids, (list, tuple)):
+        if len(token_ids) > 0 and hasattr(token_ids[0], 'ids'):
+            # List of Encoding objects
+            result = []
+            for enc in token_ids:
+                result.extend(enc.ids)
+            return result
+        return [int(x) for x in token_ids]
+    # torch tensor or numpy array
+    if hasattr(token_ids, 'tolist'):
+        return token_ids.tolist()
+    return list(token_ids)
+
+
+def _apply_chat_template(tokenizer, messages, add_generation_prompt=False) -> list[int]:
+    """Apply chat template and ensure we get a flat list of ints."""
+    kwargs = dict(
+        tokenize=True,
+        add_generation_prompt=add_generation_prompt,
+        return_tensors=None,
+        padding=False,
+    )
+    try:
+        result = tokenizer.apply_chat_template(messages, **kwargs, enable_thinking=False)
+    except TypeError:
+        result = tokenizer.apply_chat_template(messages, **kwargs)
+    return _ensure_int_list(result)
+
+
 def find_special_token_positions(
     token_ids: list[int],
     num_positions: int,
     tokenizer: AutoTokenizer,
 ) -> list[int]:
-    """Find the positions of the special '?' tokens in the tokenized input."""
-    # Try both " ?" (with space) and "?" (without) since tokenizers differ
-    candidates = set()
-    for text in [SPECIAL_TOKEN, "?"]:
-        ids = tokenizer.encode(text, add_special_tokens=False)
-        for tid in ids:
-            candidates.add(tid)
-
-    # Also try encoding "?" directly if it's a single character
-    if hasattr(tokenizer, 'vocab'):
-        for key, tid in tokenizer.vocab.items():
-            if key.strip() in ('?', '▁?', 'Ġ?'):
-                candidates.add(tid)
-
+    """Find positions of '?' tokens by decoding each token and checking for '?'."""
     positions = []
     for i, tid in enumerate(token_ids):
-        if tid in candidates and len(positions) < num_positions:
+        decoded = tokenizer.decode([tid])
+        if '?' in decoded and len(positions) < num_positions:
             positions.append(i)
 
     if len(positions) != num_positions:
+        # Debug: show what each token decodes to
+        debug_tokens = [(i, tokenizer.decode([tid])) for i, tid in enumerate(token_ids[:40])]
         raise ValueError(
-            f"Expected {num_positions} special tokens, found {len(positions)}. "
-            f"Candidate IDs: {candidates}, "
-            f"Token IDs around prefix: {token_ids[:30]}"
+            f"Expected {num_positions} '?' tokens, found {len(positions)}. "
+            f"First 40 decoded tokens: {debug_tokens}"
         )
     return positions
 
@@ -117,43 +140,10 @@ def create_training_datapoint(
     full_messages = input_messages + [{"role": "assistant", "content": qa_pair.answer}]
 
     # Tokenize prompt-only (to find where response starts)
-    try:
-        input_prompt_ids = tokenizer.apply_chat_template(
-            input_messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_tensors=None,
-            padding=False,
-            enable_thinking=False,
-        )
-    except TypeError:
-        # Some tokenizers don't support enable_thinking
-        input_prompt_ids = tokenizer.apply_chat_template(
-            input_messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_tensors=None,
-            padding=False,
-        )
+    input_prompt_ids = _apply_chat_template(tokenizer, input_messages, add_generation_prompt=True)
 
     # Tokenize full sequence (prompt + response)
-    try:
-        full_prompt_ids = tokenizer.apply_chat_template(
-            full_messages,
-            tokenize=True,
-            add_generation_prompt=False,
-            return_tensors=None,
-            padding=False,
-            enable_thinking=False,
-        )
-    except TypeError:
-        full_prompt_ids = tokenizer.apply_chat_template(
-            full_messages,
-            tokenize=True,
-            add_generation_prompt=False,
-            return_tensors=None,
-            padding=False,
-        )
+    full_prompt_ids = _apply_chat_template(tokenizer, full_messages, add_generation_prompt=False)
 
     # Create labels: -100 for prompt tokens, real IDs for response tokens
     assistant_start_idx = len(input_prompt_ids)
