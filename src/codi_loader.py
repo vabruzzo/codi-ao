@@ -12,12 +12,30 @@ import transformers
 from peft import LoraConfig, TaskType
 from safetensors.torch import load_file
 
-# Add CODI repo to path so we can import its model
-CODI_REPO = Path(__file__).parent.parent / "codi"
-if str(CODI_REPO) not in sys.path:
-    sys.path.insert(0, str(CODI_REPO))
+# Import CODI's src.model without conflicting with our own src/ package.
+# We temporarily replace sys.modules['src'] so Python resolves 'src.model'
+# from the CODI repo, not from our package.
+import importlib
 
-from src.model import CODI, ModelArguments, TrainingArguments
+CODI_REPO = Path(__file__).parent.parent / "codi"
+
+_our_src = sys.modules.pop("src", None)
+_our_src_model = sys.modules.pop("src.model", None)
+sys.path.insert(0, str(CODI_REPO))
+try:
+    import src.model as _codi_model_module
+    CODI_cls = _codi_model_module.CODI
+    ModelArguments = _codi_model_module.ModelArguments
+    TrainingArguments = _codi_model_module.TrainingArguments
+finally:
+    # Restore our src package
+    sys.path.remove(str(CODI_REPO))
+    if _our_src is not None:
+        sys.modules["src"] = _our_src
+    if _our_src_model is not None:
+        sys.modules["src.model"] = _our_src_model
+    else:
+        sys.modules.pop("src.model", None)
 
 
 def _get_lora_config(model_name: str, lora_r: int, lora_alpha: int, lora_dropout: float) -> LoraConfig:
@@ -59,22 +77,8 @@ def load_codi_model(
     lora_dropout: float = 0.05,
     full_precision: bool = True,
     device: str = "cuda",
-) -> tuple[CODI, transformers.PreTrainedTokenizer]:
+) -> tuple:
     """Load a CODI model from checkpoint.
-
-    Args:
-        model_name: HuggingFace model identifier for the base model.
-        ckpt_dir: Path to the CODI checkpoint directory containing model.safetensors.
-        num_latent: Number of latent thought iterations (must match training).
-        inf_latent_iterations: Number of latent iterations at inference time.
-        use_prj: Whether to use the projection module.
-        prj_dim: Hidden dimension of the projection module.
-        remove_eos: Whether EOS tokens are removed between bot/eot.
-        use_lora: Whether to use LoRA adapters.
-        lora_r: LoRA rank.
-        lora_alpha: LoRA alpha.
-        full_precision: Whether to use full precision (vs. quantized).
-        device: Target device.
 
     Returns:
         Tuple of (CODI model, tokenizer).
@@ -109,7 +113,7 @@ def load_codi_model(
     lora_config = _get_lora_config(model_name, lora_r, lora_alpha, lora_dropout)
 
     # Instantiate model
-    model = CODI(model_args, training_args, lora_config)
+    model = CODI_cls(model_args, training_args, lora_config)
 
     # Load checkpoint weights
     if ckpt_dir:
@@ -150,7 +154,7 @@ def load_codi_model(
     return model, tokenizer
 
 
-def load_codi_from_config(config) -> tuple[CODI, transformers.PreTrainedTokenizer]:
+def load_codi_from_config(config) -> tuple:
     """Load CODI model from a CODIConfig dataclass."""
     from src.config import CODIConfig
 
