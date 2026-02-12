@@ -108,6 +108,7 @@ def main():
 
     training_data = []
     skipped = 0
+    errors = {}
     for qa_pair in all_qa_pairs:
         record = record_lookup.get(qa_pair.problem_id)
         if record is None:
@@ -116,9 +117,16 @@ def main():
         try:
             dp = create_training_datapoint(qa_pair, record, tokenizer)
             training_data.append(dp)
-        except (AssertionError, ValueError) as e:
+        except (AssertionError, ValueError, Exception) as e:
+            err_key = str(e)[:100]
+            errors[err_key] = errors.get(err_key, 0) + 1
             skipped += 1
             continue
+
+    if errors:
+        print(f"Errors during conversion ({skipped} total):")
+        for err, count in sorted(errors.items(), key=lambda x: -x[1]):
+            print(f"  [{count}x] {err}")
 
     print(f"Created {len(training_data)} TrainingDataPoints (skipped {skipped})")
 

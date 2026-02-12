@@ -62,18 +62,30 @@ def find_special_token_positions(
     tokenizer: AutoTokenizer,
 ) -> list[int]:
     """Find the positions of the special '?' tokens in the tokenized input."""
-    special_token_id = tokenizer.encode(SPECIAL_TOKEN, add_special_tokens=False)
-    assert len(special_token_id) == 1, f"Expected single token for '{SPECIAL_TOKEN}', got {len(special_token_id)}"
-    special_id = special_token_id[0]
+    # Try both " ?" (with space) and "?" (without) since tokenizers differ
+    candidates = set()
+    for text in [SPECIAL_TOKEN, "?"]:
+        ids = tokenizer.encode(text, add_special_tokens=False)
+        for tid in ids:
+            candidates.add(tid)
+
+    # Also try encoding "?" directly if it's a single character
+    if hasattr(tokenizer, 'vocab'):
+        for key, tid in tokenizer.vocab.items():
+            if key.strip() in ('?', '▁?', 'Ġ?'):
+                candidates.add(tid)
 
     positions = []
     for i, tid in enumerate(token_ids):
-        if tid == special_id and len(positions) < num_positions:
+        if tid in candidates and len(positions) < num_positions:
             positions.append(i)
 
-    assert len(positions) == num_positions, (
-        f"Expected {num_positions} special tokens, found {len(positions)}"
-    )
+    if len(positions) != num_positions:
+        raise ValueError(
+            f"Expected {num_positions} special tokens, found {len(positions)}. "
+            f"Candidate IDs: {candidates}, "
+            f"Token IDs around prefix: {token_ids[:30]}"
+        )
     return positions
 
 
