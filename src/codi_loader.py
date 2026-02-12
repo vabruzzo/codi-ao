@@ -12,30 +12,20 @@ import transformers
 from peft import LoraConfig, TaskType
 from safetensors.torch import load_file
 
-# Import CODI's src.model without conflicting with our own src/ package.
-# We temporarily replace sys.modules['src'] so Python resolves 'src.model'
-# from the CODI repo, not from our package.
-import importlib
+# Import CODI's src/model.py directly by file path to avoid
+# conflicting with our own src/ package.
+import importlib.util
 
 CODI_REPO = Path(__file__).parent.parent / "codi"
+_codi_model_path = CODI_REPO / "src" / "model.py"
 
-_our_src = sys.modules.pop("src", None)
-_our_src_model = sys.modules.pop("src.model", None)
-sys.path.insert(0, str(CODI_REPO))
-try:
-    import src.model as _codi_model_module
-    CODI_cls = _codi_model_module.CODI
-    ModelArguments = _codi_model_module.ModelArguments
-    TrainingArguments = _codi_model_module.TrainingArguments
-finally:
-    # Restore our src package
-    sys.path.remove(str(CODI_REPO))
-    if _our_src is not None:
-        sys.modules["src"] = _our_src
-    if _our_src_model is not None:
-        sys.modules["src.model"] = _our_src_model
-    else:
-        sys.modules.pop("src.model", None)
+_spec = importlib.util.spec_from_file_location("codi_model", str(_codi_model_path))
+_codi_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_codi_module)
+
+CODI_cls = _codi_module.CODI
+ModelArguments = _codi_module.ModelArguments
+TrainingArguments = _codi_module.TrainingArguments
 
 
 def _get_lora_config(model_name: str, lora_r: int, lora_alpha: int, lora_dropout: float) -> LoraConfig:
