@@ -1,0 +1,70 @@
+# Full pipeline configuration (25k problems, ~120k QA examples)
+# Run after thin pipeline validates the E2E flow
+
+codi:
+  model_name: "meta-llama/Llama-3.2-1B-Instruct"
+  ckpt_path: "checkpoints/codi-llama"
+  num_latent: 6
+  inf_latent_iterations: 6
+  use_prj: true
+  prj_dim: 2048
+  remove_eos: true
+  use_lora: true
+  lora_r: 128
+  lora_alpha: 32
+  greedy: true
+
+extraction:
+  num_problems: 25000
+  dataset_name: "zen-E/GSM8k-Aug"
+  dataset_split: "train"
+  layers: [4, 8, 12]
+  extract_post_projection: true
+  decode_top_k: 5
+  batch_size: 1
+  output_dir: "data/activations"
+  seed: 42
+
+qa:
+  examples_per_category:
+    cat1_intermediate_result: 25000
+    cat2_operation_classification: 30000
+    cat3_full_reasoning: 15000
+    cat4_problem_properties: 15000
+    cat5_context_prediction: 25000
+    cat6_thought_informativeness: 10000
+  num_paraphrases: 12
+  train_val_split: 0.88
+  output_dir: "data/qa_datasets"
+  seed: 42
+
+ao_training:
+  model_name: "meta-llama/Llama-3.2-1B-Instruct"
+  hook_onto_layer: 1
+  lora_r: 64
+  lora_alpha: 128
+  lora_dropout: 0.05
+  num_epochs: 1
+  lr: 1.0e-5
+  train_batch_size: 16
+  eval_batch_size: 32
+  gradient_accumulation_steps: 1
+  warmup_ratio: 0.1
+  bf16: true
+  gradient_checkpointing: true
+  steering_coefficient: 1.0
+  eval_steps: 2000
+  save_steps: 5000
+  logging_steps: 50
+  output_dir: "checkpoints/ao"
+  wandb_project: "codi-ao"
+  train_data_path: "data/qa_datasets/train.pt"
+  eval_data_path: "data/qa_datasets/eval.pt"
+  seed: 42
+
+eval:
+  ao_checkpoint_path: "checkpoints/ao/final"
+  eval_data_path: "data/qa_datasets/eval.pt"
+  output_dir: "results"
+  eval_batch_size: 32
+  max_new_tokens: 64
