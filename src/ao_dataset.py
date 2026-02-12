@@ -76,18 +76,16 @@ def _ensure_int_list(token_ids) -> list[int]:
 
 
 def _apply_chat_template(tokenizer, messages, add_generation_prompt=False) -> list[int]:
-    """Apply chat template and ensure we get a flat list of ints."""
-    kwargs = dict(
-        tokenize=True,
+    """Apply chat template and return a flat list of int token IDs."""
+    # Step 1: Get the formatted chat string (always reliable)
+    chat_string = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
         add_generation_prompt=add_generation_prompt,
-        return_tensors=None,
-        padding=False,
     )
-    try:
-        result = tokenizer.apply_chat_template(messages, **kwargs, enable_thinking=False)
-    except TypeError:
-        result = tokenizer.apply_chat_template(messages, **kwargs)
-    return _ensure_int_list(result)
+    # Step 2: Tokenize the string ourselves (no ambiguity about return type)
+    token_ids = tokenizer.encode(chat_string, add_special_tokens=False)
+    return token_ids
 
 
 def find_special_token_positions(
