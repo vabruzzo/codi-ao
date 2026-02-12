@@ -148,7 +148,6 @@ class CODI(torch.nn.Module):
                     torch_dtype=(
                         torch.float16 if training_args.bf16 is False else torch.bfloat16
                     ),
-                    resume_download=True,
                 )
         else:
             self.codi = model_wrapper_class.from_pretrained(
@@ -156,7 +155,6 @@ class CODI(torch.nn.Module):
                     torch_dtype=(
                         torch.float16 if training_args.bf16 is False else torch.bfloat16
                     ),
-                    resume_download=True,
                     quantization_config=transformers.BitsAndBytesConfig(
                         load_in_4bit=True,
                         bnb_4bit_compute_dtype=torch.bfloat16,
